@@ -302,6 +302,8 @@ function renderAllCharts() {
 
     // crosshair 联动
     setupCrosshairSync()
+    // 初始对齐时间轴
+    setTimeout(syncTimeScales, 100)
   })
 }
 
@@ -560,30 +562,34 @@ function renderBigbuyChart(lw) {
     lastValueVisible: false,
   })
 
-  const bbData = bigbuyData.value.map(d => ({
-    time: d.date.slice(0, 10),
-    value: d.amount || 0,
-    color: 'rgba(24,144,255,0.6)',
-  })).filter(d => d.value > 0)
+  // 构建完整的日期序列，与 K 线时间轴对齐
+  // 用 klineData 的所有日期为基础，大单数据有则填、无则 0
+  const bbMap = {}
+  bigbuyData.value.forEach(d => { bbMap[d.date.slice(0, 10)] = d })
+
+  const bbData = klineData.value.map(d => {
+    const date = d.date.slice(0, 10)
+    const match = bbMap[date]
+    return {
+      time: date,
+      value: match ? (match.amount || 0) : 0,
+      color: match ? 'rgba(24,144,255,0.7)' : 'rgba(24,144,255,0.05)',
+    }
+  })
 
   if (bbData.length) bigbuyHistogram.setData(bbData)
 
-  // 在柱顶添加大笔买数标签
-  if (typeof bigbuyChart.createTextWatermark === 'function') {
-    // lightweight-charts 支持 TextWatermark
-    // 通过 markers 方式展示
-  }
-  
-  // 用 LineSeries 标记柱顶数值（大笔买数）
-  if (typeof bigbuyChart.addMarkers === 'function') {
-    const markers = bigbuyData.value.filter(d => (d.amount || 0) > 0).map(d => ({
-      time: d.date.slice(0, 10),
+  // 柱顶标注大笔买数（仅在有数据的位置显示）
+  const nonZero = bbData.filter(d => d.value > 0)
+  if (nonZero.length && typeof bigbuyHistogram.setMarkers === 'function') {
+    const markers = nonZero.map(d => ({
+      time: d.time,
       position: 'aboveBar',
       color: '#1890ff',
       shape: 'arrowUp',
-      text: String(d.count || 0),
+      text: String(bbMap[d.time]?.count || ''),
     }))
-    if (markers.length) bigbuyHistogram.setMarkers(markers)
+    bigbuyHistogram.setMarkers(markers)
   }
 }
 
@@ -684,6 +690,17 @@ function setupCrosshairSync() {
       // requestAnimationFrame 防止递归
       requestAnimationFrame(() => { syncing = false })
     })
+  })
+}
+
+// 初始对齐所有图表时间轴（主图 -> 子图）
+function syncTimeScales() {
+  if (!mainChart) return
+  const range = mainChart.timeScale().getVisibleLogicalRange()
+  if (!range) return
+  const charts = [macdChart, rsiChart, bigbuyChart].filter(Boolean)
+  charts.forEach(c => {
+    try { c.timeScale().setVisibleLogicalRange(range) } catch(e) {}
   })
 }
 
