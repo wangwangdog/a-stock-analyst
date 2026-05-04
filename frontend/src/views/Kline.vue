@@ -54,6 +54,9 @@
       >{{ ind.label }}</van-tag>
     </div>
 
+    <!-- 股票代码+名称 -->
+    <div class="stock-info-line">{{ symbol }}  {{ stockName || '' }}</div>
+
     <!-- 子图区域：MACD, 大单买入, 大单比例 -->
     <div class="sub-charts-area">
       <!-- MACD 子图 -->
@@ -674,9 +677,17 @@ function setupTimeScaleSync() {
   if (bigbuyChart) allCharts.push(bigbuyChart)
   if (ratioChart) allCharts.push(ratioChart)
 
-  // 先让所有图表 fitContent 确保初始范围一致
+  // 获取所有 chart 的完整时间范围（以主图为准）
+  const times = klineData.value.map(d => makeTime(d))
+  const timeFrom = times[0]
+  const timeTo = times[times.length - 1]
+
+  // 使用绝对时间值 setVisibleRange 强制对齐
   allCharts.forEach(c => {
-    if (c) c.timeScale().fitContent()
+    if (!c) return
+    try {
+      c.timeScale().setVisibleRange({ from: timeFrom, to: timeTo })
+    } catch(e) {}
   })
 
   // 订阅可见范围变化，联动所有子图
@@ -772,6 +783,13 @@ function showMenu() {
   pointer-events: none;
   z-index: 1;
   white-space: nowrap;
+}
+.stock-info-line {
+  padding: 6px 16px;
+  font-size: 13px;
+  color: #999;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
 }
 .indicator-bar {
   padding: 8px 12px;
