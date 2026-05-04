@@ -556,16 +556,35 @@ function renderBigbuyChart(lw) {
 
   bigbuyHistogram = bigbuyChart.addSeries(HistogramSeries, {
     color: '#1890ff',
-    priceFormat: { type: 'volume' },
+    priceFormat: { type: 'volume', precision: 0 },
+    lastValueVisible: false,
   })
 
   const bbData = bigbuyData.value.map(d => ({
     time: d.date.slice(0, 10),
-    value: d.amount || d.count || 0,
+    value: d.amount || 0,
     color: 'rgba(24,144,255,0.6)',
   })).filter(d => d.value > 0)
 
   if (bbData.length) bigbuyHistogram.setData(bbData)
+
+  // 在柱顶添加大笔买数标签
+  if (typeof bigbuyChart.createTextWatermark === 'function') {
+    // lightweight-charts 支持 TextWatermark
+    // 通过 markers 方式展示
+  }
+  
+  // 用 LineSeries 标记柱顶数值（大笔买数）
+  if (typeof bigbuyChart.addMarkers === 'function') {
+    const markers = bigbuyData.value.filter(d => (d.amount || 0) > 0).map(d => ({
+      time: d.date.slice(0, 10),
+      position: 'aboveBar',
+      color: '#1890ff',
+      shape: 'arrowUp',
+      text: String(d.count || 0),
+    }))
+    if (markers.length) bigbuyHistogram.setMarkers(markers)
+  }
 }
 
 // ====== 均线渲染 ======

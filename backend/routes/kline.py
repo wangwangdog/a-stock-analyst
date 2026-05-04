@@ -180,13 +180,21 @@ async def get_bigbuy(symbol: str, days: int = Query(60, description="回溯天�
     from data.cache import _get_conn
     conn = _get_conn()
     try:
-        cursor = conn.execute("""
+        # 代码匹配：前端传 000001，数据库可能存为 1 或 000001
+        # 生成多个匹配模式
+        code_clean = symbol.lstrip("0")  # "000001" -> "1"
+        code_patterns = [symbol, code_clean]
+        if code_clean and code_clean != symbol:
+            code_patterns.append(f"%{code_clean}")
+
+        placeholders = ",".join(["?"] * len(code_patterns))
+        cursor = conn.execute(f"""
             SELECT 买入日期, 大笔买数, 合计金额, 合计手数
             FROM hzeveryday
-            WHERE 股票代码 = ?
+            WHERE 股票代码 IN ({placeholders})
             ORDER BY 买入日期 DESC
             LIMIT ?
-        """, (symbol, days))
+        """, (*code_patterns, days))
         rows = cursor.fetchall()
         if not rows:
             return {"status": "ok", "data": [], "message": "无大单买入数据"}
@@ -198,7 +206,6 @@ async def get_bigbuy(symbol: str, days: int = Query(60, description="回溯天�
                 "amount": row[2],
                 "volume": row[3],
             })
-        # 按日期正序
         data.sort(key=lambda x: x["date"])
         return {"status": "ok", "data": data, "total": len(data)}
     except Exception as e:
