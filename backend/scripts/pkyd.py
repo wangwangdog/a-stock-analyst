@@ -114,6 +114,16 @@ if buy_files:
     else:
         print('wsqllite.py 执行成功 ✅')
     
+    # 调用 hzeveryday.py 汇总到 hzeveryday 表
+    print(f'\n--- 调用 hzeveryday.py 汇总数据 ---')
+    hz_path = os.path.join(SCRIPT_DIR, 'hzeveryday.py')
+    result2 = subprocess.run(['python3', hz_path], capture_output=True, text=True, cwd=SCRIPT_DIR)
+    print(result2.stdout)
+    if result2.returncode != 0:
+        print(f'hzeveryday.py 错误: {result2.stderr}')
+    else:
+        print('hzeveryday.py 执行成功 ✅')
+    
     # 将 excel_files 中的文件移回原目录
     print(f'\n--- 清理：将 excel_files 中的文件移回原目录 ---')
     for f in buy_files:
