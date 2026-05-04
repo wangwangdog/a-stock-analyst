@@ -1,0 +1,16 @@
+{
+  "name": "a-stock-analyst",
+  "version": "1.0.0",
+  "description": "A 股数据分析 Web 工具，手机端适配。胖磊 🦞 出品。",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "puppeteer": "^24.42.0"
+  }
+}

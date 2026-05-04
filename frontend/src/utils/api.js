@@ -1,0 +1,26 @@
+import axios from 'axios'
+
+const api = axios.create({
+  baseURL: '/api/v1',
+  timeout: 30000,
+})
+
+export function getKline(symbol, params = {}) {
+  return api.get(`/kline/${symbol}`, { params })
+}
+
+export function getFundamentals(symbol) {
+  return api.get(`/fundamentals/${symbol}`)
+}
+
+export function getHealth() {
+  return api.get('/health')
+}
+
+export function screenStocks(params = {}) {
+  return api.get('/screener', { params })
+}
+
+export function getStockList() {
+  return api.get('/stocks', { timeout: 60000 })
+}
