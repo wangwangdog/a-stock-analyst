@@ -16,9 +16,11 @@ symbols = [
 # '打开涨停板', '打开跌停板',
 
 # ---------- 2. 输出文件夹 ----------
-PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-output_dir = os.path.join(PROJECT_DIR, '盘口异动_分类解析')
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+output_dir = os.path.join(SCRIPT_DIR, '盘口异动_分类解析')
+excel_dir = os.path.join(SCRIPT_DIR, 'excel_files')
 os.makedirs(output_dir, exist_ok=True)
+os.makedirs(excel_dir, exist_ok=True)
 date_tag = datetime.now().strftime('%Y%m%d')
 
 print(f"输出目录: {output_dir}")
@@ -87,3 +89,37 @@ for sym in symbols:
         print('无有效解析数据')
 
 print(f'\n✅ 完成！所有解析文件保存在：{output_dir}')
+
+# ---------- 4. 复制 "大笔买入" 文件到 excel_files 并入库 ----------
+print('\n--- 筛选大笔买入文件 ---')
+buy_files = [f for f in os.listdir(output_dir)
+             if f.endswith('.xlsx') and f'大笔买入' in f and date_tag in f]
+
+import shutil
+for f in buy_files:
+    src = os.path.join(output_dir, f)
+    dst = os.path.join(excel_dir, f)
+    shutil.copy2(src, dst)
+    print(f'复制: {f}')
+
+if buy_files:
+    print(f'\n--- 调用 wsqllite.py 写入数据库 ---')
+    # 用 subprocess 调用 wsqllite.py
+    import subprocess
+    wsqllite_path = os.path.join(SCRIPT_DIR, 'wsqllite.py')
+    result = subprocess.run(['python3', wsqllite_path], capture_output=True, text=True, cwd=SCRIPT_DIR)
+    print(result.stdout)
+    if result.returncode != 0:
+        print(f'wsqllite.py 错误: {result.stderr}')
+    else:
+        print('wsqllite.py 执行成功 ✅')
+    
+    # 将 excel_files 中的文件移回原目录
+    print(f'\n--- 清理：将 excel_files 中的文件移回原目录 ---')
+    for f in buy_files:
+        src = os.path.join(excel_dir, f)
+        dst = os.path.join(output_dir, f)
+        os.replace(src, dst)
+        print(f'移回: {f}')
+else:
+    print('今日无大笔买入数据，跳过入库')
