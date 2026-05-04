@@ -30,3 +30,7 @@ Thumbs.db
 # Temp
 screenshot*.png
 /tmp/
+backend/scripts/盘口异动_分类解析/
+backend/scripts/excel_files/
+backend/scripts/stock_data.db
+backend/scripts/*.log
