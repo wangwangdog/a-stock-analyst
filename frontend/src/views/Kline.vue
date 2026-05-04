@@ -1,7 +1,7 @@
 <template>
   <div class="kline-page">
     <van-nav-bar
-      :title="stockName || symbol"
+      :title="(route.params.symbol || props.symbol) + '  ' + stockName"
       left-arrow
       @click-left="$router.back()"
     >
@@ -69,6 +69,11 @@
         <div class="sub-chart-label">大单买入</div>
         <div class="sub-chart-canvas" ref="bigbuyChartRef" id="bigbuy-chart"></div>
       </div>
+      <!-- 大单比例 子图（仅日线显示） -->
+      <div class="sub-chart-item" v-show="showBigBuy">
+        <div class="sub-chart-label">大单比例</div>
+        <div class="sub-chart-canvas" ref="ratioChartRef" id="ratio-chart"></div>
+      </div>
     </div>
 
     <!-- 操作按钮 -->
@@ -105,6 +110,7 @@ const chartRef = ref(null)
 const macdChartRef = ref(null)
 const rsiChartRef = ref(null)
 const bigbuyChartRef = ref(null)
+const ratioChartRef = ref(null)
 
 const period = ref('daily')
 const periods = [
@@ -156,12 +162,14 @@ let maLines = []
 let macdChart = null
 let rsiChart = null
 let bigbuyChart = null
+let ratioChart = null
 
 let macdHistogram = null
 let macdLine = null
 let signalLine = null
 let rsiLine = null
 let bigbuyHistogram = null
+let ratioHistogram = null
 
 // lw模块缓存
 let lwModuleCache = null
@@ -198,7 +206,7 @@ async function loadData() {
     klineData.value = data.data || []
     indData.value = data.indicators || {}
     dataSource.value = data.source
-    stockName.value = data.symbol
+    stockName.value = data.name || ''
 
     // 统计校验失败
     if (data.validation) {
@@ -299,6 +307,10 @@ function renderAllCharts() {
     if (showBigBuy.value) {
       renderBigbuyChart(lw)
     }
+    // 大单比例子图
+    if (showBigBuy.value) {
+      renderRatioChart(lw)
+    }
 
     // crosshair 联动
     setupCrosshairSync()
@@ -312,6 +324,7 @@ function destroyAllCharts() {
   if (macdChart) { macdChart.remove(); macdChart = null }
   if (rsiChart) { rsiChart.remove(); rsiChart = null }
   if (bigbuyChart) { bigbuyChart.remove(); bigbuyChart = null }
+  if (ratioChart) { ratioChart.remove(); ratioChart = null }
   candleSeries = null
   volSeries = null
   maLines = []
@@ -320,6 +333,7 @@ function destroyAllCharts() {
   signalLine = null
   rsiLine = null
   bigbuyHistogram = null
+  ratioHistogram = null
 }
 
 // ====== 主K线图 ======
@@ -593,6 +607,95 @@ function renderBigbuyChart(lw) {
   }
 }
 
+// ====== 大单比例子图（仅日线） ======
+function renderRatioChart(lw) {
+  if (!ratioChartRef.value || !bigbuyData.value.length || !klineData.value.length) return
+  const { createChart, ColorType, HistogramSeries } = lw
+
+  ratioChart = createChart(ratioChartRef.value, {
+    layout: {
+      background: { type: ColorType.Solid, color: '#fff' },
+      textColor: '#666',
+    },
+    grid: {
+      vertLines: { color: '#f5f5f5' },
+      horzLines: { color: '#f5f5f5' },
+    },
+    crosshair: { mode: 0 },
+    rightPriceScale: {
+      borderColor: '#e0e0e0',
+      scaleMargins: { top: 0.1, bottom: 0.1 },
+      visible: false,
+    },
+    timeScale: {
+      borderColor: '#e0e0e0',
+      timeVisible: true,
+      secondsVisible: false,
+      visible: false,
+    },
+    width: chartRef.value?.clientWidth || 360,
+    height: 120,
+  })
+
+  ratioHistogram = ratioChart.addSeries(HistogramSeries, {
+    color: 'rgba(255, 165, 0, 0.7)',
+    priceFormat: { type: 'price', precision: 4 },
+    lastValueVisible: false,
+  })
+
+  // 构建大单数据映射：date -> amount
+  const bbMap = {}
+  bigbuyData.value.forEach(d => { bbMap[d.date.slice(0, 10)] = d })
+
+  // 计算每个日期的比例，并归一化
+  const rawRatios = klineData.value.map(d => {
+    const date = d.date.slice(0, 10)
+    const bb = bbMap[date]
+    const klineAmount = d.amount || 0
+    if (bb && klineAmount > 0) {
+      return { date, ratio: bb.amount / klineAmount, rawAmount: bb.amount, klineAmount }
+    }
+    return { date, ratio: 0, rawAmount: 0, klineAmount }
+  }).filter(r => r.ratio > 0)
+
+  // 找最大比例用于归一化
+  const maxRatio = rawRatios.length ? Math.max(...rawRatios.map(r => r.ratio)) : 1
+
+  // 构建柱状图数据和标记
+  const ratioData = []
+  const markers = []
+  const klineDates = klineData.value.map(d => d.date.slice(0, 10))
+
+  klineDates.forEach(date => {
+    const raw = rawRatios.find(r => r.date === date)
+    if (raw && raw.ratio > 0) {
+      const normalized = raw.ratio / maxRatio
+      ratioData.push({
+        time: date,
+        value: normalized,
+        color: 'rgba(255, 165, 0, 0.7)',
+      })
+      markers.push({
+        time: date,
+        position: 'aboveBar',
+        color: 'rgba(255, 165, 0, 0.8)',
+        text: (raw.ratio * 100).toFixed(1) + '%',
+      })
+    } else {
+      ratioData.push({
+        time: date,
+        value: 0,
+        color: 'rgba(255, 165, 0, 0.05)',
+      })
+    }
+  })
+
+  if (ratioData.length) ratioHistogram.setData(ratioData)
+  if (markers.length && typeof ratioHistogram.setMarkers === 'function') {
+    ratioHistogram.setMarkers(markers)
+  }
+}
+
 // ====== 均线渲染 ======
 function renderMainIndicators(lw) {
   if (!mainChart || !indData.value) return
@@ -660,6 +763,7 @@ function renderMainIndicators(lw) {
 function setupCrosshairSync() {
   const allCharts = [mainChart, macdChart, rsiChart]
   if (bigbuyChart) allCharts.push(bigbuyChart)
+  if (ratioChart) allCharts.push(ratioChart)
 
   // 用 setVisibleLogicalRange 同步时间轴
   allCharts.forEach((sourceChart, sourceIdx) => {
@@ -698,7 +802,7 @@ function syncTimeScales() {
   if (!mainChart) return
   const range = mainChart.timeScale().getVisibleLogicalRange()
   if (!range) return
-  const charts = [macdChart, rsiChart, bigbuyChart].filter(Boolean)
+  const charts = [macdChart, rsiChart, bigbuyChart, ratioChart].filter(Boolean)
   charts.forEach(c => {
     try { c.timeScale().setVisibleLogicalRange(range) } catch(e) {}
   })

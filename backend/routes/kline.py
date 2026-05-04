@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/v1", tags=["K线数据"])
 
 class KlineResponse(BaseModel):
     symbol: str
+    name: str = ""
     period: str
     data: list
     indicators: dict = {}
@@ -87,12 +88,22 @@ async def get_kline(
             data_list.append(item)
 
         # 分钟级不计算技术指标
+        # 获取股票名称
+        name = ""
+        try:
+            fund = get_fundamental_summary(symbol)
+            if fund:
+                name = fund.get("name", "")
+        except Exception:
+            pass
+
         return KlineResponse(
             symbol=symbol, period=period, data=data_list,
             indicators={},
             validation=[],
             source="akshare",
             status="ok",
+            name=name,
             message=f"AKShare 分钟级K线 (period={minute_period})，共 {len(data_list)} 条",
         )
 
@@ -133,12 +144,22 @@ async def get_kline(
     if indicators and len(data_list) > 20:
         ind_dict = calc_all_indicators(df)
 
+    # 获取股票名称
+    name = ""
+    try:
+        fund = get_fundamental_summary(symbol)
+        if fund:
+            name = fund.get("name", "")
+    except Exception:
+        pass
+
     return KlineResponse(
         symbol=symbol, period=period, data=data_list,
         indicators=ind_dict,
         validation=result.get("validation", []),
         source=result["source"],
         status=result["status"],
+        name=name,
         message=result["message"],
     )
 
