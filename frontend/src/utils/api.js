@@ -24,3 +24,7 @@ export function screenStocks(params = {}) {
 export function getStockList() {
   return api.get('/stocks', { timeout: 60000 })
 }
+
+export function getBigBuy(symbol, days = 60) {
+  return api.get(`/bigbuy/${symbol}`, { params: { days } })
+}

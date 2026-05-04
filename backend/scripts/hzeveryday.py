@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DB_PATH = str(SCRIPT_DIR / "stock_data.db")
+DB_PATH = str(SCRIPT_DIR.parent.parent / "backend" / "data" / "stock_cache.db")  # 统一使用 stock_cache.db
 
 
 def migrate_and_cleanup():

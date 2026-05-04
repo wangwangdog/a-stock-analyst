@@ -7,7 +7,8 @@ from pathlib import Path
 # ==================== 配置 ====================
 SCRIPT_DIR = Path(__file__).resolve().parent
 EXCEL_DIR = str(SCRIPT_DIR / "excel_files")  # Excel 文件目录
-DB_PATH = str(SCRIPT_DIR / "stock_data.db")  # SQLite 数据库文件
+DB_PATH = str(SCRIPT_DIR.parent.parent / "backend" / "data" / "stock_cache.db")  # SQLite 数据库文件
+# 实际解析为: /Users/gougou/.openclaw/workspace/a-stock-analyst/backend/data/stock_cache.db
 TABLE_NAME = "stock_records"
 
 # 文件名中日期提取的正则表达式
