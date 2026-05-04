@@ -437,42 +437,48 @@ function renderMacdChart(lw) {
   const isIntraday = ['15min', '30min', '60min'].includes(period.value)
   const times = klineData.value.map(d => makeTime(d))
 
-  // MACD 柱状图
+  // 修正字段名映射：后端返回 DIF/DEA/MACD（MACD 为柱状值）
+  // DIF（蓝线）= 快线, DEA（橙线）= 慢线, MACD（红绿柱）= 差值柱
+  // 东方财富风格
+
+  // MACD 柱状图（从后端 MACD 字段取）
   macdHistogram = macdChart.addSeries(HistogramSeries, {
     priceFormat: { type: 'price' },
   })
-  const histData = macdInd.HISTOGRAM?.map((v, i) => ({
+  const histData = macdInd.MACD?.map((v, i) => ({
     time: times[i],
     value: v,
     color: v >= 0 ? 'rgba(238,10,36,0.5)' : 'rgba(7,193,96,0.5)',
   })).filter(d => d.value !== null && !isNaN(d.value)) || []
   if (histData.length) macdHistogram.setData(histData)
 
-  // MACD 线
+  // DIF 线（快线，蓝色）
   macdLine = macdChart.addSeries(LineSeries, {
     color: '#1890ff',
     lineWidth: 1,
     lastValueVisible: false,
+    priceLineVisible: false,
     priceFormat: { type: 'price' },
   })
-  const macdLineData = macdInd.MACD?.map((v, i) => ({
+  const difData = macdInd.DIF?.map((v, i) => ({
     time: times[i],
     value: v,
   })).filter(d => d.value !== null && !isNaN(d.value)) || []
-  if (macdLineData.length) macdLine.setData(macdLineData)
+  if (difData.length) macdLine.setData(difData)
 
-  // SIGNAL 线
+  // DEA 线（慢线，橙色）
   signalLine = macdChart.addSeries(LineSeries, {
     color: '#fa8c16',
     lineWidth: 1,
     lastValueVisible: false,
+    priceLineVisible: false,
     priceFormat: { type: 'price' },
   })
-  const signalData = macdInd.SIGNAL?.map((v, i) => ({
+  const deaData = macdInd.DEA?.map((v, i) => ({
     time: times[i],
     value: v,
   })).filter(d => d.value !== null && !isNaN(d.value)) || []
-  if (signalData.length) signalLine.setData(signalData)
+  if (deaData.length) signalLine.setData(deaData)
 }
 
 // ====== RSI 子图 ======
@@ -624,8 +630,8 @@ function renderRatioChart(lw) {
     crosshair: { mode: 0 },
     rightPriceScale: {
       borderColor: '#e0e0e0',
-      scaleMargins: { top: 0.1, bottom: 0.1 },
-      visible: false,
+      scaleMargins: { top: 0.2, bottom: 0.1 },
+      visible: true,
     },
     timeScale: {
       borderColor: '#e0e0e0',
@@ -637,58 +643,42 @@ function renderRatioChart(lw) {
     height: 120,
   })
 
+  // 用大单颜色映射（橙色系）
   ratioHistogram = ratioChart.addSeries(HistogramSeries, {
     color: 'rgba(255, 165, 0, 0.7)',
-    priceFormat: { type: 'price', precision: 4 },
+    priceFormat: { type: 'percent', precision: 1 },
     lastValueVisible: false,
   })
 
-  // 构建大单数据映射：date -> amount
+  // 构建大单数据映射：date -> data
   const bbMap = {}
   bigbuyData.value.forEach(d => { bbMap[d.date.slice(0, 10)] = d })
 
-  // 计算每个日期的比例，并归一化
-  const rawRatios = klineData.value.map(d => {
+  // 以 K 线日期为基准，计算每个日期的比例，归一化到[0,1]
+  let maxRatio = 0
+  const allRatios = klineData.value.map(d => {
     const date = d.date.slice(0, 10)
     const bb = bbMap[date]
     const klineAmount = d.amount || 0
-    if (bb && klineAmount > 0) {
-      return { date, ratio: bb.amount / klineAmount, rawAmount: bb.amount, klineAmount }
-    }
-    return { date, ratio: 0, rawAmount: 0, klineAmount }
-  }).filter(r => r.ratio > 0)
-
-  // 找最大比例用于归一化
-  const maxRatio = rawRatios.length ? Math.max(...rawRatios.map(r => r.ratio)) : 1
+    const ratio = (bb && klineAmount > 0) ? (bb.amount / klineAmount) : 0
+    if (ratio > maxRatio) maxRatio = ratio
+    return { date, ratio, count: bb?.count || 0 }
+  })
+  if (maxRatio === 0) maxRatio = 1
 
   // 构建柱状图数据和标记
-  const ratioData = []
-  const markers = []
-  const klineDates = klineData.value.map(d => d.date.slice(0, 10))
+  const ratioData = allRatios.map(r => ({
+    time: r.date,
+    value: r.ratio / maxRatio,
+    color: r.ratio > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.03)',
+  }))
 
-  klineDates.forEach(date => {
-    const raw = rawRatios.find(r => r.date === date)
-    if (raw && raw.ratio > 0) {
-      const normalized = raw.ratio / maxRatio
-      ratioData.push({
-        time: date,
-        value: normalized,
-        color: 'rgba(255, 165, 0, 0.7)',
-      })
-      markers.push({
-        time: date,
-        position: 'aboveBar',
-        color: 'rgba(255, 165, 0, 0.8)',
-        text: (raw.ratio * 100).toFixed(1) + '%',
-      })
-    } else {
-      ratioData.push({
-        time: date,
-        value: 0,
-        color: 'rgba(255, 165, 0, 0.05)',
-      })
-    }
-  })
+  const markers = allRatios.filter(r => r.ratio > 0).map(r => ({
+    time: r.date,
+    position: 'aboveBar',
+    color: 'rgba(255, 165, 0, 0.8)',
+    text: (r.ratio * 100).toFixed(1) + '%',
+  }))
 
   if (ratioData.length) ratioHistogram.setData(ratioData)
   if (markers.length && typeof ratioHistogram.setMarkers === 'function') {
@@ -718,6 +708,7 @@ function renderMainIndicators(lw) {
           color: colors[idx],
           lineWidth: 1,
           lastValueVisible: false,
+          priceLineVisible: false,
           priceFormat: { type: 'price' },
         })
         const data = klineData.value.map((d, i) => {
