@@ -535,11 +535,12 @@ function renderBigbuyChart(lw, times) {
   }
 }
 
-// ====== 大单比例子图（仅日线） ======
+// ====== 大单比例子图（仅日线 - 与大单买入同构） ======
 function renderRatioChart(lw, times) {
   if (!ratioChartRef.value || !bigbuyData.value.length || !klineData.value.length) return
   const { createChart, ColorType, HistogramSeries } = lw
 
+  // 完全复制大单买入的图表配置
   ratioChart = createChart(ratioChartRef.value, {
     layout: {
       background: { type: ColorType.Solid, color: '#fff' },
@@ -552,7 +553,7 @@ function renderRatioChart(lw, times) {
     crosshair: { mode: 0 },
     rightPriceScale: {
       borderColor: '#e0e0e0',
-      scaleMargins: { top: 0.2, bottom: 0.1 },
+      scaleMargins: { top: 0.1, bottom: 0.1 },
       visible: true,
     },
     timeScale: {
@@ -564,45 +565,50 @@ function renderRatioChart(lw, times) {
     height: 120,
   })
 
-  // 用大单颜色映射（橙色系）
+  // 完全复制大单买入的 series 配置
   ratioHistogram = ratioChart.addSeries(HistogramSeries, {
     color: 'rgba(255, 165, 0, 0.7)',
-    priceFormat: { type: 'percent', precision: 1 },
+    priceFormat: { type: 'volume', precision: 0 },
     lastValueVisible: false,
   })
 
-  // 构建大单数据映射：date -> data
+  // 大单数据映射：date -> data
   const bbMap = {}
   bigbuyData.value.forEach(d => { bbMap[d.date.slice(0, 10)] = d })
 
-  // 以 K 线日期为基准，计算每个日期的比例，归一化到[0,1]
-  let maxRatio = 0
-  const allRatios = klineData.value.map((d, i) => {
+  // 与大单买入完全相同的日期构建方式，仅修改 value 计算
+  const ratioData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
-    const bb = bbMap[date]
+    const match = bbMap[date]
     const klineAmount = d.amount || 0
-    const ratio = (bb && klineAmount > 0) ? (bb.amount / klineAmount) : 0
-    if (ratio > maxRatio) maxRatio = ratio
-    return { time: times[i], ratio, count: bb?.count || 0 }
+    const rawRatio = (match && klineAmount > 0) ? (match.amount / klineAmount) : 0
+    return {
+      time: times[i],
+      rawRatio,
+    }
   })
-  if (maxRatio === 0) maxRatio = 1
 
-  // 构建柱状图数据和标记
-  const ratioData = allRatios.map(r => ({
+  // 归一化
+  const maxRatio = Math.max(0.001, ...ratioData.map(r => r.rawRatio))
+
+  const chartData = ratioData.map(r => ({
     time: r.time,
-    value: r.ratio / maxRatio,
-    color: r.ratio > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.03)',
+    value: r.rawRatio / maxRatio,
+    color: r.rawRatio > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
   }))
 
-  const markers = allRatios.filter(r => r.ratio > 0).map(r => ({
-    time: r.time,
-    position: 'aboveBar',
-    color: 'rgba(255, 165, 0, 0.8)',
-    text: (r.ratio * 100).toFixed(1) + '%',
-  }))
+  if (chartData.length) ratioHistogram.setData(chartData)
 
-  if (ratioData.length) ratioHistogram.setData(ratioData)
-  if (markers.length && typeof ratioHistogram.setMarkers === 'function') {
+  // 柱顶标注（与大单买入相同的 markers 写法）
+  const nonZero = chartData.filter(d => d.value > 0)
+  if (nonZero.length && typeof ratioHistogram.setMarkers === 'function') {
+    const markers = nonZero.map(d => ({
+      time: d.time,
+      position: 'aboveBar',
+      color: '#ff8c00',
+      shape: 'arrowUp',
+      text: String(((bbMap[String(d.time)]?.amount || 0) / (klineData.value.find(k => k.date.slice(0,10) === d.time)?.amount || 1) * 100).toFixed(1) + '%'),
+    }))
     ratioHistogram.setMarkers(markers)
   }
 }
