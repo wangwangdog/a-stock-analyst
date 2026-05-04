@@ -33,21 +33,25 @@ def calc_macd(df: pd.DataFrame, fast=12, slow=26, signal=9) -> dict:
     }
 
 
-def calc_rsi(df: pd.DataFrame, period=14) -> dict:
-    """计算 RSI"""
-    if "close" not in df.columns or len(df) < period + 1:
-        return {f"RSI{period}": []}
+def calc_rsi(df: pd.DataFrame, periods: list = [6, 12, 24]) -> dict:
+    """计算 RSI，支持多个周期"""
+    if "close" not in df.columns or len(df) < min(periods) + 1:
+        return {f"RSI{p}": [] for p in periods}
 
     close = df["close"]
     delta = close.diff()
-    gain = delta.where(delta > 0, 0)
-    loss = (-delta).where(delta < 0, 0)
-    avg_gain = gain.rolling(window=period, min_periods=period).mean()
-    avg_loss = loss.rolling(window=period, min_periods=period).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + rs))
 
-    return {f"RSI{period}": rsi.round(2).tolist()}
+    result = {}
+    for period in periods:
+        gain = delta.where(delta > 0, 0)
+        loss = (-delta).where(delta < 0, 0)
+        avg_gain = gain.rolling(window=period, min_periods=period).mean()
+        avg_loss = loss.rolling(window=period, min_periods=period).mean()
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rsi = 100 - (100 / (1 + rs))
+        result[f"RSI{period}"] = rsi.round(2).tolist()
+
+    return result
 
 
 def calc_bollinger(df: pd.DataFrame, period=20, std_dev=2) -> dict:

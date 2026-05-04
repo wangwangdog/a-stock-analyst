@@ -37,7 +37,9 @@
 
     <!-- 主K线图 -->
     <div class="main-chart-wrap">
-      <div class="chart-container" ref="chartRef"></div>
+      <div class="chart-container" ref="chartRef">
+        <div class="chart-watermark">{{ stockName || symbol }}</div>
+      </div>
     </div>
 
     <!-- 技术指标选择 -->
@@ -52,18 +54,14 @@
       >{{ ind.label }}</van-tag>
     </div>
 
-    <!-- 子图区域：MACD, RSI, 大单买入量 -->
+    <!-- 子图区域：MACD, 大单买入, 大单比例 -->
     <div class="sub-charts-area">
       <!-- MACD 子图 -->
       <div class="sub-chart-item">
         <div class="sub-chart-label">MACD</div>
         <div class="sub-chart-canvas" ref="macdChartRef" id="macd-chart"></div>
       </div>
-      <!-- RSI 子图 -->
-      <div class="sub-chart-item">
-        <div class="sub-chart-label">RSI</div>
-        <div class="sub-chart-canvas" ref="rsiChartRef" id="rsi-chart"></div>
-      </div>
+
       <!-- 大单买入量 子图（仅日线显示） -->
       <div class="sub-chart-item" v-show="showBigBuy">
         <div class="sub-chart-label">大单买入</div>
@@ -108,7 +106,7 @@ const route = useRoute()
 
 const chartRef = ref(null)
 const macdChartRef = ref(null)
-const rsiChartRef = ref(null)
+
 const bigbuyChartRef = ref(null)
 const ratioChartRef = ref(null)
 
@@ -125,7 +123,7 @@ const periods = [
 const indicators = ref([
   { key: 'ma', label: 'MA', active: true },
   { key: 'macd', label: 'MACD', active: false },
-  { key: 'rsi', label: 'RSI', active: false },
+
   { key: 'bollinger', label: '布林', active: false },
   { key: 'kdj', label: 'KDJ', active: false },
 ])
@@ -160,14 +158,12 @@ let maLines = []
 
 // 子图实例
 let macdChart = null
-let rsiChart = null
 let bigbuyChart = null
 let ratioChart = null
 
 let macdHistogram = null
 let macdLine = null
 let signalLine = null
-let rsiLine = null
 let bigbuyHistogram = null
 let ratioHistogram = null
 
@@ -297,32 +293,30 @@ function renderAllCharts() {
     // 销毁旧图表
     destroyAllCharts()
 
+    // 计算统一的时间数据
+    const times = klineData.value.map(d => makeTime(d))
+
     // 主K线图
-    renderMainChart(lw)
+    renderMainChart(lw, times)
     // MACD子图
-    renderMacdChart(lw)
-    // RSI子图
-    renderRsiChart(lw)
+    renderMacdChart(lw, times)
     // 大单买入量子图
     if (showBigBuy.value) {
-      renderBigbuyChart(lw)
+      renderBigbuyChart(lw, times)
     }
     // 大单比例子图
     if (showBigBuy.value) {
-      renderRatioChart(lw)
+      renderRatioChart(lw, times)
     }
 
-    // crosshair 联动
-    setupCrosshairSync()
     // 初始对齐时间轴
-    setTimeout(syncTimeScales, 100)
+    setupTimeScaleSync()
   })
 }
 
 function destroyAllCharts() {
   if (mainChart) { mainChart.remove(); mainChart = null }
   if (macdChart) { macdChart.remove(); macdChart = null }
-  if (rsiChart) { rsiChart.remove(); rsiChart = null }
   if (bigbuyChart) { bigbuyChart.remove(); bigbuyChart = null }
   if (ratioChart) { ratioChart.remove(); ratioChart = null }
   candleSeries = null
@@ -331,13 +325,12 @@ function destroyAllCharts() {
   macdHistogram = null
   macdLine = null
   signalLine = null
-  rsiLine = null
   bigbuyHistogram = null
   ratioHistogram = null
 }
 
 // ====== 主K线图 ======
-function renderMainChart(lw) {
+function renderMainChart(lw, times) {
   const { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries } = lw
 
   mainChart = createChart(chartRef.value, {
@@ -372,9 +365,8 @@ function renderMainChart(lw) {
     wickDownColor: '#07c160',
   })
 
-  const isIntraday = ['15min', '30min', '60min'].includes(period.value)
-  const candles = klineData.value.map(d => ({
-    time: makeTime(d),
+  const candles = klineData.value.map((d, i) => ({
+    time: times[i],
     open: d.open,
     high: d.high,
     low: d.low,
@@ -391,8 +383,8 @@ function renderMainChart(lw) {
     scaleMargins: { top: 0.8, bottom: 0 },
   })
 
-  const volumes = klineData.value.map(d => ({
-    time: makeTime(d),
+  const volumes = klineData.value.map((d, i) => ({
+    time: times[i],
     value: d.volume || 0,
     color: d.close >= d.open ? 'rgba(238,10,36,0.3)' : 'rgba(7,193,96,0.3)',
   }))
@@ -403,7 +395,7 @@ function renderMainChart(lw) {
 }
 
 // ====== MACD 子图 ======
-function renderMacdChart(lw) {
+function renderMacdChart(lw, times) {
   if (!macdChartRef.value) return
   const { createChart, ColorType, HistogramSeries, LineSeries } = lw
 
@@ -425,7 +417,6 @@ function renderMacdChart(lw) {
       borderColor: '#e0e0e0',
       timeVisible: true,
       secondsVisible: false,
-      visible: false, // 隐藏时间轴
     },
     width: chartRef.value?.clientWidth || 360,
     height: 120,
@@ -433,13 +424,6 @@ function renderMacdChart(lw) {
 
   const macdInd = indData.value?.macd
   if (!macdInd) return
-
-  const isIntraday = ['15min', '30min', '60min'].includes(period.value)
-  const times = klineData.value.map(d => makeTime(d))
-
-  // 修正字段名映射：后端返回 DIF/DEA/MACD（MACD 为柱状值）
-  // DIF（蓝线）= 快线, DEA（橙线）= 慢线, MACD（红绿柱）= 差值柱
-  // 东方财富风格
 
   // MACD 柱状图（从后端 MACD 字段取）
   macdHistogram = macdChart.addSeries(HistogramSeries, {
@@ -481,74 +465,10 @@ function renderMacdChart(lw) {
   if (deaData.length) signalLine.setData(deaData)
 }
 
-// ====== RSI 子图 ======
-function renderRsiChart(lw) {
-  if (!rsiChartRef.value) return
-  const { createChart, ColorType, LineSeries } = lw
 
-  rsiChart = createChart(rsiChartRef.value, {
-    layout: {
-      background: { type: ColorType.Solid, color: '#fff' },
-      textColor: '#666',
-    },
-    grid: {
-      vertLines: { color: '#f5f5f5' },
-      horzLines: { color: '#f5f5f5' },
-    },
-    crosshair: { mode: 0 },
-    rightPriceScale: {
-      borderColor: '#e0e0e0',
-      scaleMargins: { top: 0.1, bottom: 0.1 },
-    },
-    timeScale: {
-      borderColor: '#e0e0e0',
-      timeVisible: true,
-      secondsVisible: false,
-      visible: false,
-    },
-    width: chartRef.value?.clientWidth || 360,
-    height: 120,
-  })
-
-  const rsiInd = indData.value?.rsi
-  if (!rsiInd) return
-
-  const times = klineData.value.map(d => makeTime(d))
-
-  // 70 上界参考线
-  const upperLine = rsiChart.addSeries(LineSeries, {
-    color: 'rgba(238,10,36,0.3)',
-    lineWidth: 1,
-    lastValueVisible: false,
-    priceFormat: { type: 'price' },
-  })
-  upperLine.setData(times.map(t => ({ time: t, value: 70 })))
-
-  // 30 下界参考线
-  const lowerLine = rsiChart.addSeries(LineSeries, {
-    color: 'rgba(7,193,96,0.3)',
-    lineWidth: 1,
-    lastValueVisible: false,
-    priceFormat: { type: 'price' },
-  })
-  lowerLine.setData(times.map(t => ({ time: t, value: 30 })))
-
-  // RSI 线
-  rsiLine = rsiChart.addSeries(LineSeries, {
-    color: '#a05dff',
-    lineWidth: 2,
-    lastValueVisible: false,
-    priceFormat: { type: 'price' },
-  })
-  const rsiData = rsiInd.RSI?.map((v, i) => ({
-    time: times[i],
-    value: v,
-  })).filter(d => d.value !== null && !isNaN(d.value)) || []
-  if (rsiData.length) rsiLine.setData(rsiData)
-}
 
 // ====== 大单买入量子图（仅日线） ======
-function renderBigbuyChart(lw) {
+function renderBigbuyChart(lw, times) {
   if (!bigbuyChartRef.value || !bigbuyData.value.length) return
   const { createChart, ColorType, HistogramSeries } = lw
 
@@ -570,7 +490,6 @@ function renderBigbuyChart(lw) {
       borderColor: '#e0e0e0',
       timeVisible: true,
       secondsVisible: false,
-      visible: false,
     },
     width: chartRef.value?.clientWidth || 360,
     height: 120,
@@ -587,11 +506,11 @@ function renderBigbuyChart(lw) {
   const bbMap = {}
   bigbuyData.value.forEach(d => { bbMap[d.date.slice(0, 10)] = d })
 
-  const bbData = klineData.value.map(d => {
+  const bbData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
     const match = bbMap[date]
     return {
-      time: date,
+      time: times[i],
       value: match ? (match.amount || 0) : 0,
       color: match ? 'rgba(24,144,255,0.7)' : 'rgba(24,144,255,0.05)',
     }
@@ -602,19 +521,19 @@ function renderBigbuyChart(lw) {
   // 柱顶标注大笔买数（仅在有数据的位置显示）
   const nonZero = bbData.filter(d => d.value > 0)
   if (nonZero.length && typeof bigbuyHistogram.setMarkers === 'function') {
-    const markers = nonZero.map(d => ({
+    const markers = nonZero.map((d, i) => ({
       time: d.time,
       position: 'aboveBar',
       color: '#1890ff',
       shape: 'arrowUp',
-      text: String(bbMap[d.time]?.count || ''),
+      text: String(bbMap[klineData.value[bbData.indexOf(d)].date.slice(0, 10)]?.count || ''),
     }))
     bigbuyHistogram.setMarkers(markers)
   }
 }
 
 // ====== 大单比例子图（仅日线） ======
-function renderRatioChart(lw) {
+function renderRatioChart(lw, times) {
   if (!ratioChartRef.value || !bigbuyData.value.length || !klineData.value.length) return
   const { createChart, ColorType, HistogramSeries } = lw
 
@@ -637,7 +556,6 @@ function renderRatioChart(lw) {
       borderColor: '#e0e0e0',
       timeVisible: true,
       secondsVisible: false,
-      visible: false,
     },
     width: chartRef.value?.clientWidth || 360,
     height: 120,
@@ -656,25 +574,25 @@ function renderRatioChart(lw) {
 
   // 以 K 线日期为基准，计算每个日期的比例，归一化到[0,1]
   let maxRatio = 0
-  const allRatios = klineData.value.map(d => {
+  const allRatios = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
     const bb = bbMap[date]
     const klineAmount = d.amount || 0
     const ratio = (bb && klineAmount > 0) ? (bb.amount / klineAmount) : 0
     if (ratio > maxRatio) maxRatio = ratio
-    return { date, ratio, count: bb?.count || 0 }
+    return { time: times[i], ratio, count: bb?.count || 0 }
   })
   if (maxRatio === 0) maxRatio = 1
 
   // 构建柱状图数据和标记
   const ratioData = allRatios.map(r => ({
-    time: r.date,
+    time: r.time,
     value: r.ratio / maxRatio,
     color: r.ratio > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.03)',
   }))
 
   const markers = allRatios.filter(r => r.ratio > 0).map(r => ({
-    time: r.date,
+    time: r.time,
     position: 'aboveBar',
     color: 'rgba(255, 165, 0, 0.8)',
     text: (r.ratio * 100).toFixed(1) + '%',
@@ -750,52 +668,38 @@ function renderMainIndicators(lw) {
   }
 }
 
-// ====== crosshair 联动 ======
-function setupCrosshairSync() {
-  const allCharts = [mainChart, macdChart, rsiChart]
+// ====== 时间轴联动 ======
+function setupTimeScaleSync() {
+  const allCharts = [mainChart, macdChart]
   if (bigbuyChart) allCharts.push(bigbuyChart)
   if (ratioChart) allCharts.push(ratioChart)
 
-  // 用 setVisibleLogicalRange 同步时间轴
+  // 先让所有图表 fitContent 确保初始范围一致
+  allCharts.forEach(c => {
+    if (c) c.timeScale().fitContent()
+  })
+
+  // 订阅可见范围变化，联动所有子图
   allCharts.forEach((sourceChart, sourceIdx) => {
     if (!sourceChart) return
     let syncing = false
 
-    sourceChart.subscribeCrosshairMove((param) => {
-      if (syncing || !param.time) return
+    sourceChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (syncing || !range) return
       syncing = true
 
       try {
-        // 当鼠标离开图表区域时 param.point 为 null
-        if (param.point) {
-          // 将主图的时间轴范围同步到子图
-          const logicalRange = sourceChart.timeScale().getVisibleLogicalRange()
-
-          allCharts.forEach((targetChart, targetIdx) => {
-            if (targetIdx === sourceIdx || !targetChart) return
-            if (logicalRange) {
-              targetChart.timeScale().setVisibleLogicalRange(logicalRange)
-            }
-          })
-        }
+        allCharts.forEach((targetChart, targetIdx) => {
+          if (targetIdx === sourceIdx || !targetChart) return
+          targetChart.timeScale().setVisibleLogicalRange(range)
+        })
       } catch (e) {
         // ignore
       }
 
-      // requestAnimationFrame 防止递归
       requestAnimationFrame(() => { syncing = false })
     })
-  })
-}
 
-// 初始对齐所有图表时间轴（主图 -> 子图）
-function syncTimeScales() {
-  if (!mainChart) return
-  const range = mainChart.timeScale().getVisibleLogicalRange()
-  if (!range) return
-  const charts = [macdChart, rsiChart, bigbuyChart, ratioChart].filter(Boolean)
-  charts.forEach(c => {
-    try { c.timeScale().setVisibleLogicalRange(range) } catch(e) {}
   })
 }
 
@@ -853,8 +757,21 @@ function showMenu() {
   width: 100%;
 }
 .chart-container {
+  position: relative;
   width: 100%;
   height: 360px;
+}
+.chart-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 48px;
+  font-weight: bold;
+  color: rgba(0, 0, 0, 0.05);
+  pointer-events: none;
+  z-index: 1;
+  white-space: nowrap;
 }
 .indicator-bar {
   padding: 8px 12px;
