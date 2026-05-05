@@ -114,8 +114,8 @@
 
     <!-- 操作按钮 -->
     <div class="action-bar">
-      <van-button icon="records-o" size="small" plain :loading="quickLoading" @click="doQuickAnalysis" :class="{ 'btn-cached': hasQuickCache }">快速分析</van-button>
-      <van-button icon="search" size="small" plain :loading="deepLoading" @click="doDeepAnalysis" :class="{ 'btn-cached': hasDeepCache }">深度分析</van-button>
+      <van-button icon="records-o" size="small" plain :loading="quickLoading" @click="doQuickAnalysis" :style="quickBtnStyle">快速分析</van-button>
+      <van-button icon="search" size="small" plain :loading="deepLoading" @click="doDeepAnalysis" :style="deepBtnStyle">深度分析</van-button>
       <template v-if="isFav">
         <van-button icon="star" size="small" plain @click="removeFavorite" style="color: #ee0a24; border-color: #ee0a24">已自选</van-button>
       </template>
@@ -245,24 +245,37 @@ const hasDeepCache = ref(false)
 const cachedQuickResult = ref(null)
 const cachedDeepResult = ref(null)
 
+const RED = 'border-color:#ff9999;color:#cc3333;background:#ffebeb'
+const quickBtnStyle = computed(() => hasQuickCache.value ? RED : '')
+const deepBtnStyle = computed(() => hasDeepCache.value ? RED : '')
+
 async function checkAnalysisCache() {
   const sym = (route.params.symbol || props.symbol)
-  const u = getU()
-  if (!u) return
+  const u = localStorage.getItem('username')
+  if (!u) { console.log('❌ 无用户名, 跳过缓存检查'); return }
   try {
-    const [q, d] = await Promise.all([
-      fetch('/api/auth/cache/check', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({username: u, symbol: sym, analysis_type: 'quick'})
-      }).then(r => r.json()),
-      fetch('/api/auth/cache/check', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({username: u, symbol: sym, analysis_type: 'deep'})
-      }).then(r => r.json())
-    ])
-    if (q.cached) { hasQuickCache.value = true; cachedQuickResult.value = q.result }
-    if (d.cached) { hasDeepCache.value = true; cachedDeepResult.value = d.result }
-  } catch {}
+    console.log('🔍 检查缓存:', u, sym, 'quick')
+    const qResp = await fetch('/api/auth/cache/check', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({username: u, symbol: sym, analysis_type: 'quick'})
+    })
+    const q = await qResp.json()
+    console.log('  快速结果:', JSON.stringify(q))
+
+    console.log('🔍 检查缓存:', u, sym, 'deep')
+    const dResp = await fetch('/api/auth/cache/check', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({username: u, symbol: sym, analysis_type: 'deep'})
+    })
+    const d = await dResp.json()
+    console.log('  深度结果:', JSON.stringify(d))
+
+    hasQuickCache.value = q.cached === true
+    hasDeepCache.value = d.cached === true
+    if (q.cached) cachedQuickResult.value = q.result
+    if (d.cached) cachedDeepResult.value = d.result
+    console.log('  按钮状态:', hasQuickCache.value ? '🔴快速' : '⚪快速', hasDeepCache.value ? '🔴深度' : '⚪深度', sym)
+  } catch (e) { console.log('❌ 缓存检查失败:', e) }
 }
 
 async function doQuickAnalysis() {
@@ -619,6 +632,7 @@ async function loadData() {
     renderAllCharts()
     showToast.clear()
   } catch (e) {
+    console.error('❌ loadData 失败:', e, e.message)
     showToast({ message: '数据加载失败', type: 'fail' })
   }
 }
