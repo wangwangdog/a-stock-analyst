@@ -91,6 +91,7 @@ async def get_me(un: Optional[str] = Cookie(None)):
 class CacheCheckRequest(BaseModel):
     symbol: str
     analysis_type: str  # "quick" or "deep"
+    result_json: str = ""
 
 
 def _get_username(un: str = None) -> Optional[str]:
@@ -104,19 +105,23 @@ def _get_username(un: str = None) -> Optional[str]:
 
 @router.post("/cache/check")
 async def check_cache(req: CacheCheckRequest, un: Optional[str] = Cookie(None)):
-    """检查最近1日内是否有缓存的分析结果"""
+    """检查最近2个交易日内是否有缓存的分析结果"""
     username = _get_username(un)
     if not username:
         return {"cached": False}
     conn = _get_conn()
-    one_day_ago = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    # 用72小时近似2个交易日(含周末48h不够)
+    cutoff = (datetime.now() - timedelta(hours=72)).strftime("%Y-%m-%d %H:%M:%S")
     row = conn.execute(
         "SELECT result_json FROM analysis_cache WHERE username=? AND symbol=? AND analysis_type=? AND created_at > ?",
-        (username, req.symbol, req.analysis_type, one_day_ago)
+        (username, req.symbol, req.analysis_type, cutoff)
     ).fetchone()
     conn.close()
-    if row:
-        return {"cached": True, "result": json.loads(row[0])}
+    if row and row[0] and row[0] != "{}":
+        try:
+            return {"cached": True, "result": json.loads(row[0])}
+        except:
+            pass
     return {"cached": False}
 
 
@@ -129,7 +134,7 @@ async def save_cache(req: CacheCheckRequest, un: Optional[str] = Cookie(None)):
     conn = _get_conn()
     conn.execute(
         "INSERT OR REPLACE INTO analysis_cache (username, symbol, analysis_type, result_json, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
-        (username, req.symbol, req.analysis_type, "{}")
+        (username, req.symbol, req.analysis_type, req.result_json or "{}")
     )
     conn.commit()
     conn.close()

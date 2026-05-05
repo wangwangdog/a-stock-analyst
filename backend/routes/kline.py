@@ -153,6 +153,30 @@ async def get_kline(
     except Exception:
         pass
 
+    # 后台预缓存所有其他周期的K线数据
+    try:
+        from data.cache import save_kline, get_kline
+        import asyncio, threading
+        async def _do_precache():
+            others = [p for p in ["daily","weekly","monthly","15min","30min","60min"] if p != period]
+            for op in others:
+                try:
+                    existing = get_kline(symbol, "akshare", period=op)
+                    if existing is not None and not existing.empty:
+                        continue
+                    if op in ("15min","30min","60min"):
+                        pm = {"15min":"15","30min":"30","60min":"60"}
+                        df2 = akshare_fetcher.get_minute_kline(symbol, pm[op])
+                    else:
+                        df2 = akshare_fetcher.get_daily_kline(symbol, period=op)
+                    if df2 is not None and not df2.empty:
+                        save_kline(symbol, "akshare", df2, period=op)
+                except:
+                    pass
+        threading.Thread(target=lambda: asyncio.run(_do_precache()), daemon=True).start()
+    except:
+        pass
+
     return KlineResponse(
         symbol=symbol, period=period, data=data_list,
         indicators=ind_dict,

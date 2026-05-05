@@ -102,8 +102,8 @@
     <!-- 操作按钮 -->
     <div class="action-bar">
       <van-button icon="info-o" size="small" plain @click="$router.push('/fund/' + symbol)">基本面</van-button>
-      <van-button icon="records-o" size="small" plain :loading="quickLoading" @click="doQuickAnalysis">快速分析</van-button>
-      <van-button icon="search" size="small" plain :loading="deepLoading" @click="doDeepAnalysis">深度分析</van-button>
+      <van-button icon="records-o" size="small" plain :loading="quickLoading" @click="doQuickAnalysis" :color="hasQuickCache ? '#ffcccc' : ''" :style="hasQuickCache ? 'border-color:#ff9999;color:#cc3333;background:#ffebeb' : ''">快速分析</van-button>
+      <van-button icon="search" size="small" plain :loading="deepLoading" @click="doDeepAnalysis" :color="hasDeepCache ? '#ffcccc' : ''" :style="hasDeepCache ? 'border-color:#ff9999;color:#cc3333;background:#ffebeb' : ''">深度分析</van-button>
       <template v-if="isFav">
         <van-button icon="star" size="small" plain @click="removeFavorite" style="color: #ee0a24; border-color: #ee0a24">已自选</van-button>
       </template>
@@ -199,23 +199,37 @@ const bigbuyData = ref([])
 const aiResult = ref({ title: '', text: '', visible: false })
 const quickLoading = ref(false)
 const deepLoading = ref(false)
+const hasQuickCache = ref(false)
+const hasDeepCache = ref(false)
+const cachedQuickResult = ref(null)
+const cachedDeepResult = ref(null)
+
+async function checkAnalysisCache() {
+  const sym = route.params.symbol || props.symbol
+  try {
+    const [q, d] = await Promise.all([
+      fetch('/api/auth/cache/check', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({symbol: sym, analysis_type: 'quick'})
+      }).then(r => r.json()),
+      fetch('/api/auth/cache/check', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({symbol: sym, analysis_type: 'deep'})
+      }).then(r => r.json())
+    ])
+    if (q.cached) { hasQuickCache.value = true; cachedQuickResult.value = q.result }
+    if (d.cached) { hasDeepCache.value = true; cachedDeepResult.value = d.result }
+  } catch {}
+}
 
 async function doQuickAnalysis() {
   const sym = route.params.symbol || props.symbol
   
-  // 检查缓存
-  try {
-    const cacheResp = await fetch('/api/auth/cache/check', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol: sym, analysis_type: 'quick' })
-    })
-    const cacheData = await cacheResp.json()
-    if (cacheData.cached && cacheData.result) {
-      _showQuickResult(cacheData.result)
-      return
-    }
-  } catch {}
+  // 有缓存直接显示
+  if (hasQuickCache.value && cachedQuickResult.value) {
+    _showQuickResult(cachedQuickResult.value)
+    return
+  }
   
   quickLoading.value = true
   aiResult.value = { title: '⚡ 快速分析中...', text: '正在获取数据并研判，请稍候...' }
@@ -231,6 +245,13 @@ async function doQuickAnalysis() {
     })
     const data = await resp.json()
     if (data.success) {
+      // 保存缓存
+      try {
+        const cacheBody = JSON.stringify({symbol: sym, analysis_type: 'quick', result_json: JSON.stringify(data)})
+        fetch('/api/auth/cache/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: cacheBody })
+        hasQuickCache.value = true
+        cachedQuickResult.value = data
+      } catch {}
       let signalText = ''
       if (data.signal === 'buy') signalText = '🟢 关注/可介入'
       else if (data.signal === 'watch') signalText = '🟡 观望'
@@ -284,20 +305,11 @@ async function doQuickAnalysis() {
 async function doDeepAnalysis() {
   const sym = route.params.symbol || props.symbol
   
-  // 检查缓存
-  try {
-    const cacheResp = await fetch('/api/auth/cache/check', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol: sym, analysis_type: 'deep' })
-    })
-    const cacheData = await cacheResp.json()
-    if (cacheData.cached && cacheData.result) {
-      _showDeepResult(cacheData.result)
-      deepLoading.value = false
-      return
-    }
-  } catch {}
+  // 有缓存直接显示
+  if (hasDeepCache.value && cachedDeepResult.value) {
+    _showDeepResult(cachedDeepResult.value)
+    return
+  }
   
   deepLoading.value = true
   
@@ -336,10 +348,10 @@ async function doDeepAnalysis() {
             finalized = true
             // 保存缓存
             try {
-              fetch('/api/auth/cache/save', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol: sym, analysis_type: 'deep' })
-              })
+              const cacheBody = JSON.stringify({symbol: sym, analysis_type: 'deep', result_json: JSON.stringify(payload.result)})
+              fetch('/api/auth/cache/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: cacheBody })
+              hasDeepCache.value = true
+              cachedDeepResult.value = payload.result
             } catch {}
             
             if (payload.result) {
@@ -476,6 +488,7 @@ onMounted(() => {
   loadData()
   loadFavorites()
   loadBigBuyRank()
+  checkAnalysisCache()
 })
 
 async function loadData() {
