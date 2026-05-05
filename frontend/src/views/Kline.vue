@@ -64,7 +64,7 @@
       </div>
     </div>
 
-    <!-- 技术指标选择 -->
+    <!-- 技术指标选择 + 基本面 -->
     <div class="indicator-bar">
       <van-tag
         v-for="ind in indicators"
@@ -74,6 +74,7 @@
         style="margin: 2px 4px"
         @click="toggleIndicator(ind)"
       >{{ ind.label }}</van-tag>
+      <van-tag plain round style="margin: 2px 4px;background:#e8f5e9;color:#2e7d32;border-color:#a5d6a7" @click="$router.push('/fund/' + symbol)">📋 基本面</van-tag>
     </div>
 
     <!-- 股票代码+名称 -->
@@ -101,7 +102,6 @@
 
     <!-- 操作按钮 -->
     <div class="action-bar">
-      <van-button icon="info-o" size="small" plain @click="$router.push('/fund/' + symbol)">基本面</van-button>
       <van-button icon="records-o" size="small" plain :loading="quickLoading" @click="doQuickAnalysis" :color="hasQuickCache ? '#ffcccc' : ''" :style="hasQuickCache ? 'border-color:#ff9999;color:#cc3333;background:#ffebeb' : ''">快速分析</van-button>
       <van-button icon="search" size="small" plain :loading="deepLoading" @click="doDeepAnalysis" :color="hasDeepCache ? '#ffcccc' : ''" :style="hasDeepCache ? 'border-color:#ff9999;color:#cc3333;background:#ffebeb' : ''">深度分析</van-button>
       <template v-if="isFav">
@@ -182,7 +182,6 @@ function switchStock(symbol) {
 
 const indicators = ref([
   { key: 'ma', label: 'MA', active: true },
-  { key: 'macd', label: 'MACD', active: false },
   { key: 'bollinger', label: '布林', active: false },
   { key: 'kdj', label: 'KDJ', active: false },
 ])
@@ -481,7 +480,11 @@ let ratioHistogram = null
 let lwModuleCache = null
 
 watch(() => route.params.symbol, (newSym) => {
-  if (newSym) loadData()
+  if (newSym) {
+    aiResult.value = { title: '', text: '' }
+    loadData()
+    checkAnalysisCache()
+  }
 })
 
 onMounted(() => {
@@ -969,7 +972,7 @@ function renderMainIndicators(lw) {
       const line = mainChart.addSeries(LineSeries, {
         color: '#fa8c16',
         lineWidth: 1,
-        lineStyle: 2,
+        lineStyle: 0,
       })
       line.setData(klineData.value.map((d, i) => ({
         time: makeTime(d),
@@ -980,7 +983,7 @@ function renderMainIndicators(lw) {
       const line2 = mainChart.addSeries(LineSeries, {
         color: '#fa8c16',
         lineWidth: 1,
-        lineStyle: 2,
+        lineStyle: 0,
       })
       line2.setData(klineData.value.map((d, i) => ({
         time: makeTime(d),
