@@ -74,11 +74,23 @@
         style="margin: 2px 4px"
         @click="toggleIndicator(ind)"
       >{{ ind.label }}</van-tag>
-      <van-tag plain round style="margin: 2px 4px;background:#e8f5e9;color:#2e7d32;border-color:#a5d6a7" @click="$router.push('/fund/' + symbol)">📋 基本面</van-tag>
+      <van-tag plain round :type="showFundamentals ? 'primary' : 'default'" style="margin: 2px 4px" @click="toggleFundamentals">📋 基本面</van-tag>
     </div>
 
     <!-- 股票代码+名称 -->
     <div class="stock-info-line">{{ symbol }}  {{ stockName || '' }}</div>
+
+    <!-- 基本面信息（内联） -->
+    <div class="fund-section" v-if="showFundamentals">
+      <div v-if="fundLoading" class="fund-loading">加载中...</div>
+      <div v-else-if="fundError" class="fund-error">{{ fundError }}</div>
+      <div v-else class="fund-content">
+        <div v-for="(v, k) in fundData" :key="k" class="fund-row">
+          <span class="fund-label">{{ k }}:</span>
+          <span class="fund-value">{{ v }}</span>
+        </div>
+      </div>
+    </div>
 
     <!-- 子图区域：MACD, 大单买入, 大单比例 -->
     <div class="sub-charts-area">
@@ -178,6 +190,36 @@ function switchStock(symbol) {
   const sym = route.params.symbol || props.symbol
   if (symbol === sym) return
   window.location.hash = '#/kline/' + symbol
+}
+
+// 基本面内联显示
+const showFundamentals = ref(false)
+const fundLoading = ref(false)
+const fundData = ref({})
+const fundError = ref('')
+
+async function toggleFundamentals() {
+  showFundamentals.value = !showFundamentals.value
+  if (!showFundamentals.value) return
+  if (Object.keys(fundData.value).length > 0) return  // 已有数据不重复加载
+  
+  fundLoading.value = true
+  fundError.value = ''
+  try {
+    const resp = await fetch('/api/v1/fundamentals/' + (route.params.symbol || props.symbol))
+    const data = await resp.json()
+    if (data && data.data) {
+      fundData.value = data.data
+    } else if (data && data.message) {
+      fundData.value = { '信息': data.message }
+    } else {
+      fundData.value = data
+    }
+  } catch (e) {
+    fundError.value = '获取基本面失败'
+  } finally {
+    fundLoading.value = false
+  }
 }
 
 const indicators = ref([
@@ -1220,6 +1262,33 @@ function showMenu() {
   color: #999;
   background: #fff;
   border-bottom: 1px solid #f0f0f0;
+}
+.fund-section {
+  padding: 10px 16px;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+}
+.fund-loading, .fund-error {
+  color: #999;
+  text-align: center;
+  padding: 8px;
+}
+.fund-content {
+  display: flex;
+  flex-wrap: wrap;
+}
+.fund-row {
+  width: 50%;
+  padding: 3px 0;
+}
+.fund-label {
+  color: #999;
+  margin-right: 4px;
+}
+.fund-value {
+  color: #333;
+  font-weight: 500;
 }
 .indicator-bar {
   padding: 8px 12px;
