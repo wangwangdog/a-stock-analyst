@@ -114,8 +114,8 @@
 
     <!-- 操作按钮 -->
     <div class="action-bar">
-      <van-button icon="records-o" size="small" plain :loading="quickLoading" @click="doQuickAnalysis" :color="hasQuickCache ? '#ffcccc' : ''" :style="hasQuickCache ? 'border-color:#ff9999;color:#cc3333;background:#ffebeb' : ''">快速分析</van-button>
-      <van-button icon="search" size="small" plain :loading="deepLoading" @click="doDeepAnalysis" :color="hasDeepCache ? '#ffcccc' : ''" :style="hasDeepCache ? 'border-color:#ff9999;color:#cc3333;background:#ffebeb' : ''">深度分析</van-button>
+      <van-button icon="records-o" size="small" plain :loading="quickLoading" @click="doQuickAnalysis" :class="{ 'btn-cached': hasQuickCache }">快速分析</van-button>
+      <van-button icon="search" size="small" plain :loading="deepLoading" @click="doDeepAnalysis" :class="{ 'btn-cached': hasDeepCache }">深度分析</van-button>
       <template v-if="isFav">
         <van-button icon="star" size="small" plain @click="removeFavorite" style="color: #ee0a24; border-color: #ee0a24">已自选</van-button>
       </template>
@@ -268,7 +268,22 @@ async function doQuickAnalysis() {
   
   // 有缓存直接显示
   if (hasQuickCache.value && cachedQuickResult.value) {
-    _showQuickResult(cachedQuickResult.value)
+    const data = cachedQuickResult.value
+    if (data && data.success !== false) {
+      let signalText = ''
+      if (data.signal === 'buy') signalText = '🟢 关注/可介入'
+      else if (data.signal === 'watch') signalText = '🟡 观望'
+      else if (data.signal === 'pass') signalText = '🔴 不宜介入'
+      else signalText = '⚪ ' + (data.signal || '未知')
+      const moneyIcon = { '有主力介入迹象': '🟢', '无明显主力迹象': '🟡', '主力出货': '🔴' }[data.main_force_judgment] || '⚪'
+      const bottomIcon = { '已见底': '🟢', '底部区域': '🟡', '需观察': '🟡', '仍在下跌中': '🔴' }[data.bottom_pattern] || '⚪'
+      aiResult.value = {
+        title: '⚡ 快速研判结果(缓存)',
+        text: `<div class="ai-quick-result"><div class="ai-signal ${data.signal}"><strong>${signalText}</strong></div><div class="ai-detail">${moneyIcon} 主力资金: ${data.main_force_judgment || '未知'}</div><div class="ai-detail">${bottomIcon} 底部形态: ${data.bottom_pattern || '未知'}</div><div class="ai-reason">💡 ${data.reasoning || ''}</div></div>`
+      }
+    } else {
+      aiResult.value = { title: '❌ 缓存无效', text: '缓存数据格式错误' }
+    }
     return
   }
   
@@ -333,14 +348,6 @@ async function doQuickAnalysis() {
   } finally {
     quickLoading.value = false
   }
-  // 保存缓存
-  try {
-    await fetch('/api/auth/cache/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol: sym, analysis_type: 'quick' })
-    })
-  } catch {}
 }
 
 async function doDeepAnalysis() {
@@ -348,7 +355,7 @@ async function doDeepAnalysis() {
   
   // 有缓存直接显示
   if (hasDeepCache.value && cachedDeepResult.value) {
-    _showDeepResult(cachedDeepResult.value)
+    _showDeepResultCached(cachedDeepResult.value)
     return
   }
   
@@ -443,6 +450,24 @@ async function doDeepAnalysis() {
     aiResult.value = { title: '❌ 分析失败', text: e.message }
   } finally {
     deepLoading.value = false
+  }
+}
+
+function _showDeepResultCached(d) {
+  if (!d || !d.full_analysis) {
+    aiResult.value = { title: '❌ 缓存无效', text: '缓存数据不完整' }
+    return
+  }
+  const fa = d.full_analysis || {}
+  const col1 = '<div class="analysis-col" style="background:#e3f2fd"><div class="col-title">📈 基本面分析师</div><div class="col-content">' + _escHtml(fa.fundamentals_report || fa.market_report || '暂无数据') + '</div></div>'
+  const col2 = '<div class="analysis-col" style="background:#e8f5e9"><div class="col-title">📗 多头研究员</div><div class="col-content">' + _escHtml(fa.bull_analysis || '暂无数据') + '</div></div>'
+  const col3 = '<div class="analysis-col" style="background:#ffebee"><div class="col-title">📕 空头研究员</div><div class="col-content">' + _escHtml(fa.bear_analysis || '暂无数据') + '</div></div>'
+  const fd = fa.final_decision || {}
+  const signalLabels = { 'buy': '🟢 买入', 'sell': '🔴 卖出', 'hold': '🟡 持有' }
+  const sl = signalLabels[fd.signal_type] || '⚪ ' + (fd.signal_type || '未知')
+  aiResult.value = {
+    title: '🧠 深度研判结果(缓存)',
+    text: `<div class="three-col-analysis"><div class="three-col-row">${col1}${col2}${col3}</div><div class="final-conclusion"><div class="conclusion-title">📋 最终研判结论</div><div class="ai-signal ${fd.signal_type}"><strong>${sl}</strong> | 置信度: ${Math.round((fd.confidence || 0) * 100)}%</div><div class="ai-reason">💡 ${fd.reasoning || ''}</div>${fd.risk_level ? '<div class="ai-detail" style="margin-top:6px">⚠️ 风险评级: ' + fd.risk_level + '</div>' : ''}</div></div>`
   }
 }
 
@@ -1323,6 +1348,11 @@ function showMenu() {
   display: flex;
   gap: 12px;
   padding: 12px 16px;
+}
+.btn-cached {
+  border-color: #ff9999 !important;
+  color: #cc3333 !important;
+  background: #ffebeb !important;
 }
 .fav-disabled {
   opacity: 0.5;

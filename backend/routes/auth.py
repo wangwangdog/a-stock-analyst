@@ -44,7 +44,6 @@ _ensure_tables()
 
 class LoginRequest(BaseModel):
     username: str
-    password: str = ""
 
 
 @router.post("/login")
