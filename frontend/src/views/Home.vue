@@ -43,6 +43,7 @@
           <van-grid-item icon="chart-trending-o" text="热门K线" to="/kline/000001" />
           <van-grid-item icon="info-o" text="自选股" @click="showFavorites = true; loadFavs()" />
           <van-grid-item icon="filter-o" text="筛选器" to="/screener" />
+          <van-grid-item icon="gem-o" text="量化选股" to="/strategies" />
         </van-grid>
       </div>
 

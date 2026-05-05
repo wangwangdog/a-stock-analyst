@@ -40,3 +40,5 @@ README-ai-integration.md
 eval_results/
 requirements-all.txt
 backend/config/
+Sequoia-X/data/*.db
+Sequoia-X/

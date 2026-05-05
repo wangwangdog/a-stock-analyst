@@ -102,7 +102,16 @@ def quick_analyze(
             if p.startswith("收:"):
                 last_close = p.replace("收:", "")
                 break
-    
+
+    # 获取策略信号
+    try:
+        from agent_utils import get_strategy_signals_for_agent
+        strategy_signals = get_strategy_signals_for_agent(ticker)
+    except Exception:
+        strategy_signals = ""
+
+    strategy_block = f"\n量化策略信号: {strategy_signals}\n" if strategy_signals else ""
+
     prompt = f"""你是一位A股短线技术分析师。请基于以下数据，对股票 {ticker} {stock_name} 做快速研判。
 
 截止数据时间，最新收盘价: {last_close}
@@ -111,7 +120,7 @@ def quick_analyze(
 {kline_str}
 
 资金流向: {data.get('bigbuy', '暂无')}
-
+{strategy_block}
 请分析以下两个核心问题，用JSON格式回答:
 
 1. **主力是否近期介入**: 通过量价关系判断 - 近期是否有放量上涨、大单买入增多等主力介入迹象？

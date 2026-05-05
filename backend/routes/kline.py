@@ -107,41 +107,77 @@ async def get_kline(
             message=f"AKShare 分钟级K线 (period={minute_period})，共 {len(data_list)} 条",
         )
 
-    # 日/周/月 - 双源校验
-    result = fetch_kline_cross_checked(symbol, start_date, end_date)
+    # 日/周/月 - 优先从 sequoia.db 读取日线
+    kline_data = None
+    if period == "daily":
+        try:
+            from data.sequoia_engine import get_daily_kline
+            sq_data = get_daily_kline(symbol, start_date, end_date)
+            if sq_data:
+                kline_data = sq_data
+        except Exception:
+            pass
 
-    if result["status"] == "failed":
-        return KlineResponse(
-            symbol=symbol, period=period, data=[], source="",
-            status="failed", message=result["message"]
-        )
+    if kline_data:
+        # 转换为 DataFrame 以便技术指标计算
+        import pandas as pd
+        df = pd.DataFrame(kline_data)
+        if "date" in df.columns:
+            df = df.rename(columns={"date": "trade_date"})
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        
+        data_list = []
+        for _, row in df.iterrows():
+            entry = {
+                "date": str(row.get("trade_date", ""))[:10],
+                "open": round(float(row.get("open", 0)), 2),
+                "close": round(float(row.get("close", 0)), 2),
+                "high": round(float(row.get("high", 0)), 2),
+                "low": round(float(row.get("low", 0)), 2),
+            }
+            if row.get("volume"):
+                entry["volume"] = float(row["volume"])
+            if row.get("amount"):
+                entry["amount"] = float(row["amount"])
+            data_list.append(entry)
+        result = {"primary": df, "status": "ok", "source": "sequoia",
+                  "message": f"Sequoia 日线，共 {len(data_list)} 条", "validation": []}
+    else:
+        # fallback: 双源校验
+        result = fetch_kline_cross_checked(symbol, start_date, end_date)
 
-    df = result["primary"]
-    if df is None or df.empty:
-        return KlineResponse(
-            symbol=symbol, period=period, data=[], source=result["source"],
-            status="failed", message="无可用数据"
-        )
+        if result["status"] == "failed":
+            return KlineResponse(
+                symbol=symbol, period=period, data=[], source="",
+                status="failed", message=result["message"]
+            )
 
-    # 准备返回数据
-    data_list = []
-    for _, row in df.iterrows():
-        item = {
-            "date": str(row.get("trade_date", ""))[:10],
-            "open": round(float(row.get("open", 0)), 2),
-            "close": round(float(row.get("close", 0)), 2),
-            "high": round(float(row.get("high", 0)), 2),
-            "low": round(float(row.get("low", 0)), 2),
-        }
-        if "volume" in row:
-            item["volume"] = float(row["volume"])
-        if "amount" in row:
-            item["amount"] = float(row["amount"])
-        data_list.append(item)
+        df = result["primary"]
+        if df is None or df.empty:
+            return KlineResponse(
+                symbol=symbol, period=period, data=[], source=result["source"],
+                status="failed", message="无可用数据"
+            )
+
+        # 准备返回数据
+        data_list = []
+        for _, row in df.iterrows():
+            item = {
+                "date": str(row.get("trade_date", ""))[:10],
+                "open": round(float(row.get("open", 0)), 2),
+                "close": round(float(row.get("close", 0)), 2),
+                "high": round(float(row.get("high", 0)), 2),
+                "low": round(float(row.get("low", 0)), 2),
+            }
+            if "volume" in row:
+                item["volume"] = float(row["volume"])
+            if "amount" in row:
+                item["amount"] = float(row["amount"])
+            data_list.append(item)
 
     # 计算技术指标
     ind_dict = {}
-    if indicators and len(data_list) > 20:
+    if indicators and len(data_list) > 20 and df is not None and not df.empty:
         ind_dict = calc_all_indicators(df)
 
     # 获取股票名称

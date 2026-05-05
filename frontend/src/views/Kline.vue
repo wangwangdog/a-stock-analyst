@@ -122,6 +122,7 @@
       <template v-else>
         <van-button icon="star-o" size="small" plain @click="addFavorite">加自选</van-button>
       </template>
+      <van-button icon="gem-o" size="small" plain @click="checkStrategySignals">策略</van-button>
     </div>
 
     <!-- AI 分析结果区域 -->
@@ -147,7 +148,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { showToast } from 'vant'
+import { showToast, showDialog } from 'vant'
 import { getKline, getBigBuy } from '../utils/api.js'
 
 const props = defineProps({ symbol: { type: String, default: '000001' } })
@@ -550,6 +551,27 @@ const changeColor = computed(() => {
   if (!priceData.value) return '#666'
   return priceData.value.pct >= 0 ? '#ee0a24' : '#07c160'
 })
+
+// Sequoia-X 策略信号查询
+async function checkStrategySignals() {
+  const sym = route.params.symbol || props.symbol
+  if (!sym) return
+  try {
+    const r = await fetch('/api/v1/strategy/signals/' + sym)
+    const data = await r.json()
+    if (!data.has_signals) {
+      showToast('暂无策略信号')
+      return
+    }
+    showDialog({
+      title: '📊 策略信号',
+      message: data.signals,
+      showCancelButton: false,
+    })
+  } catch {
+    showToast('策略信号查询失败')
+  }
+}
 
 // 图表实例
 let mainChart = null

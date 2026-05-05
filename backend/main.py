@@ -20,6 +20,7 @@ from routes.kline import router as kline_router
 from routes.ai import router as ai_router
 from routes.favorites import router as favorites_router
 from routes.auth import router as auth_router
+from routes.strategy import router as strategy_router
 
 app = FastAPI(
     title="A-Stock Analyst",
@@ -41,6 +42,7 @@ app.include_router(kline_router)
 app.include_router(ai_router)
 app.include_router(favorites_router)
 app.include_router(auth_router)
+app.include_router(strategy_router)
 
 
 # === 启动时数据检查 ===
