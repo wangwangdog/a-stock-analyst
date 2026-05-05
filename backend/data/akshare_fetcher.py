@@ -1,6 +1,7 @@
 """AKShare 数据获取"""
 import time
 from typing import Optional
+from datetime import datetime, timedelta
 
 import pandas as pd
 from loguru import logger
@@ -38,12 +39,13 @@ def get_stock_list() -> pd.DataFrame:
 
 
 def get_daily_kline(symbol: str, start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
-    """获取日K线数据 (后复权)"""
+    """获取日K线，默认最近200个自然日(约140交易日)"""
     if not available():
         return None
-    if start_date is None and end_date is None:
-        start_date = "19000101"
-    # AKShare 兼容无横线日期格式
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=200)).strftime("%Y%m%d")
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y%m%d")
     _start = start_date.replace("-", "") if start_date else None
     _end = end_date.replace("-", "") if end_date else None
     try:
@@ -76,9 +78,13 @@ def _fix_date_params(start_date, end_date):
 
 
 def get_weekly_kline(symbol: str, start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
-    """获取周K线"""
+    """获取周K线，默认最近140个自然日(约20周)"""
     if not available():
         return None
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=140)).strftime("%Y%m%d")
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y%m%d")
     _start, _end = _fix_date_params(start_date, end_date)
     try:
         _rate_limit()
@@ -99,9 +105,13 @@ def get_weekly_kline(symbol: str, start_date: str = None, end_date: str = None) 
 
 
 def get_monthly_kline(symbol: str, start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
-    """获取月K线"""
+    """获取月K线，默认最近365天"""
     if not available():
         return None
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y%m%d")
     _start, _end = _fix_date_params(start_date, end_date)
     try:
         _rate_limit()
@@ -181,12 +191,12 @@ def get_individual_info(symbol: str) -> Optional[dict]:
 
 
 def get_minute_kline(symbol: str, period: str = "15", start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
-    """获取分钟级K线数据 (15/30/60分钟)
+    """获取分钟级K线数据 (15/30/60分钟)，默认最近30天
 
     Args:
         symbol: 股票代码，如 "000001"
         period: 分钟级别 "15", "30", "60"
-        start_date: 起始日期，支持 "20240101" 或 "2024-01-01" 格式
+        start_date: 起始日期
         end_date: 结束日期
     """
     if not available():
@@ -194,6 +204,10 @@ def get_minute_kline(symbol: str, period: str = "15", start_date: str = None, en
     if period not in ("15", "30", "60"):
         logger.warning(f"[AKShare] 不支持的分钟级别: {period}")
         return None
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y%m%d")
     _start = start_date.replace("-", "") if start_date else None
     _end = end_date.replace("-", "") if end_date else None
     try:

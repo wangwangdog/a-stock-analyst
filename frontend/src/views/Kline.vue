@@ -1,5 +1,27 @@
 <template>
-  <div class="kline-page">
+  <div class="kline-split">
+    <!-- 左侧：大笔买入排名 -->
+    <div class="left-sidebar">
+      <div class="sidebar-header">📊 大笔买入排名</div>
+      <div class="sidebar-list">
+        <div
+          v-for="(item, idx) in bigBuyRank"
+          :key="item.symbol"
+          class="sidebar-item"
+          :class="{ active: activeStock === item.symbol }"
+          @click="switchStock(item.symbol)"
+        >
+          <span class="rank-num">{{ idx + 1 }}</span>
+          <span class="rank-name">{{ item.name || item.symbol }}</span>
+          <span class="rank-code">{{ item.symbol }}</span>
+          <span class="rank-days">{{ item.days }}天</span>
+        </div>
+        <div v-if="!bigBuyRank.length" class="sidebar-empty">暂无数据</div>
+      </div>
+    </div>
+
+    <!-- 右侧：K线内容 -->
+    <div class="right-kline">
     <van-nav-bar
       :title="(route.params.symbol || props.symbol) + '  ' + stockName"
       left-arrow
@@ -80,12 +102,23 @@
     <!-- 操作按钮 -->
     <div class="action-bar">
       <van-button icon="info-o" size="small" plain @click="$router.push('/fund/' + symbol)">基本面</van-button>
+      <van-button icon="records-o" size="small" plain :loading="quickLoading" @click="doQuickAnalysis">快速分析</van-button>
+      <van-button icon="search" size="small" plain :loading="deepLoading" @click="doDeepAnalysis">深度分析</van-button>
       <template v-if="isFav">
-        <van-button icon="star" size="small" plain disabled class="fav-disabled">已自选</van-button>
+        <van-button icon="star" size="small" plain @click="removeFavorite" style="color: #ee0a24; border-color: #ee0a24">已自选</van-button>
       </template>
       <template v-else>
         <van-button icon="star-o" size="small" plain @click="addFavorite">加自选</van-button>
       </template>
+    </div>
+
+    <!-- AI 分析结果区域 -->
+    <div class="ai-result" v-if="aiResult.text">
+      <div class="ai-result-header">
+        <span class="ai-result-title">{{ aiResult.title }}</span>
+        <van-icon name="cross" @click="aiResult.text = ''" style="font-size:18px;padding:4px" />
+      </div>
+      <div class="ai-result-body" v-html="aiResult.text"></div>
     </div>
 
     <!-- 数据源状态 -->
@@ -96,6 +129,7 @@
       </span>
     </div>
   </div>
+</div>
 </template>
 
 <script setup>
@@ -123,10 +157,32 @@ const periods = [
   { key: '15min', label: '15分' },
 ]
 
+// 左侧大单排名
+const bigBuyRank = ref([])
+// 左侧选中股票与路由同步
+const activeStock = ref(route.params.symbol || props.symbol)
+
+// 监听路由变化同步高亮
+watch(() => route.params.symbol, (newSym) => {
+  if (newSym) activeStock.value = newSym
+})
+
+async function loadBigBuyRank() {
+  try {
+    const resp = await fetch('/api/v1/bigbuy-rank')
+    bigBuyRank.value = await resp.json()
+  } catch {}
+}
+
+function switchStock(symbol) {
+  const sym = route.params.symbol || props.symbol
+  if (symbol === sym) return
+  window.location.hash = '#/kline/' + symbol
+}
+
 const indicators = ref([
   { key: 'ma', label: 'MA', active: true },
   { key: 'macd', label: 'MACD', active: false },
-
   { key: 'bollinger', label: '布林', active: false },
   { key: 'kdj', label: 'KDJ', active: false },
 ])
@@ -139,12 +195,251 @@ const dataSource = ref('')
 const validationFailed = ref(0)
 const bigbuyData = ref([])
 
-// 自选股
-const favorites = ref(JSON.parse(localStorage.getItem('stock_favorites') || '[]'))
-const isFav = computed(() => {
+// AI 分析结果
+const aiResult = ref({ title: '', text: '', visible: false })
+const quickLoading = ref(false)
+const deepLoading = ref(false)
+
+async function doQuickAnalysis() {
   const sym = route.params.symbol || props.symbol
-  return favorites.value.includes(sym)
-})
+  
+  // 检查缓存
+  try {
+    const cacheResp = await fetch('/api/auth/cache/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: sym, analysis_type: 'quick' })
+    })
+    const cacheData = await cacheResp.json()
+    if (cacheData.cached && cacheData.result) {
+      _showQuickResult(cacheData.result)
+      return
+    }
+  } catch {}
+  
+  quickLoading.value = true
+  aiResult.value = { title: '⚡ 快速分析中...', text: '正在获取数据并研判，请稍候...' }
+  try {
+    const resp = await fetch('/api/ai/quick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stock_code: sym,
+        stock_name: stockName.value,
+        llm_provider: 'deepseek'
+      })
+    })
+    const data = await resp.json()
+    if (data.success) {
+      let signalText = ''
+      if (data.signal === 'buy') signalText = '🟢 关注/可介入'
+      else if (data.signal === 'watch') signalText = '🟡 观望'
+      else if (data.signal === 'pass') signalText = '🔴 不宜介入'
+      else signalText = '⚪ ' + data.signal
+
+      const moneyColors = {
+        '有主力介入迹象': '🟢',
+        '无明显主力迹象': '🟡',
+        '主力出货': '🔴'
+      }
+      const moneyIcon = moneyColors[data.main_force_judgment] || '⚪'
+
+      const bottomColors = {
+        '已见底': '🟢',
+        '底部区域': '🟡',
+        '需观察': '🟡',
+        '仍在下跌中': '🔴'
+      }
+      const bottomIcon = bottomColors[data.bottom_pattern] || '⚪'
+
+      aiResult.value = {
+        title: '⚡ 快速研判结果',
+        text: `
+          <div class="ai-quick-result">
+            <div class="ai-signal ${data.signal}"><strong>${signalText}</strong></div>
+            <div class="ai-detail">${moneyIcon} 主力资金: ${data.main_force_judgment || '未知'}</div>
+            <div class="ai-detail">${bottomIcon} 底部形态: ${data.bottom_pattern || '未知'}</div>
+            <div class="ai-reason">💡 ${data.reasoning || ''}</div>
+          </div>
+        `
+      }
+    } else {
+      aiResult.value = { title: '❌ 分析失败', text: data.error || '未知错误' }
+    }
+  } catch (e) {
+    aiResult.value = { title: '❌ 分析失败', text: e.message }
+  } finally {
+    quickLoading.value = false
+  }
+  // 保存缓存
+  try {
+    await fetch('/api/auth/cache/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: sym, analysis_type: 'quick' })
+    })
+  } catch {}
+}
+
+async function doDeepAnalysis() {
+  const sym = route.params.symbol || props.symbol
+  
+  // 检查缓存
+  try {
+    const cacheResp = await fetch('/api/auth/cache/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: sym, analysis_type: 'deep' })
+    })
+    const cacheData = await cacheResp.json()
+    if (cacheData.cached && cacheData.result) {
+      _showDeepResult(cacheData.result)
+      deepLoading.value = false
+      return
+    }
+  } catch {}
+  
+  deepLoading.value = true
+  
+  let progressHtml = '<div class="stream-start">🧠 深度分析启动，等待各Agent完成...</div>'
+  let finalized = false
+  
+  try {
+    const resp = await fetch('/api/ai/analyze/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stock_code: sym,
+        llm_provider: 'deepseek',
+        max_debate_rounds: 1
+      })
+    })
+    
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const payload = JSON.parse(line.slice(6))
+          
+          if (payload.done) {
+            finalized = true
+            // 保存缓存
+            try {
+              fetch('/api/auth/cache/save', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: sym, analysis_type: 'deep' })
+              })
+            } catch {}
+            
+            if (payload.result) {
+              const fa = payload.result.full_analysis || {}
+              
+              // 三栏分析
+              const col1 = '<div class="analysis-col" style="background:#e3f2fd"><div class="col-title">📈 基本面分析师</div><div class="col-content">' + _escHtml(fa.fundamentals_report || fa.market_report || '暂无数据') + '</div></div>'
+              const col2 = '<div class="analysis-col" style="background:#e8f5e9"><div class="col-title">📗 多头研究员</div><div class="col-content">' + _escHtml(fa.bull_analysis || '暂无数据') + '</div></div>'
+              const col3 = '<div class="analysis-col" style="background:#ffebee"><div class="col-title">📕 空头研究员</div><div class="col-content">' + _escHtml(fa.bear_analysis || '暂无数据') + '</div></div>'
+              
+              // 最终结论
+              const fd = fa.final_decision || {}
+              const signalLabels = { 'buy': '🟢 买入', 'sell': '🔴 卖出', 'hold': '🟡 持有' }
+              const sl = signalLabels[fd.signal_type] || '⚪ ' + (fd.signal_type || '未知')
+              
+              progressHtml = `
+                <div class="three-col-analysis">
+                  <div class="three-col-row">${col1}${col2}${col3}</div>
+                  <div class="final-conclusion">
+                    <div class="conclusion-title">📋 最终研判结论</div>
+                    <div class="ai-signal ${fd.signal_type}"><strong>${sl}</strong> | 置信度: ${Math.round((fd.confidence || 0) * 100)}%</div>
+                    <div class="ai-reason">💡 ${fd.reasoning || ''}</div>
+                    ${fd.risk_level ? '<div class="ai-detail" style="margin-top:6px">⚠️ 风险评级: ' + fd.risk_level + '</div>' : ''}
+                  </div>
+                </div>`
+            } else {
+              progressHtml = '<div class="stream-error">❌ ' + (payload.error || '未知错误') + '</div>'
+            }
+          } else if (payload.agent) {
+            const emojis = { '市场分析师': '📊', '社交媒体分析师': '💬', '新闻分析师': '📰', '基本面分析师': '📈', '看涨研究员': '📗', '看跌研究员': '📕', '研究经理': '📋', '交易员': '💼', '激进风控': '🔥', '保守风控': '🛡️', '中性风控': '⚖️', '风控经理': '🎯' }
+            const emoji = emojis[payload.agent] || '🤖'
+            progressHtml += '<div class="stream-agent-card"><div class="stream-agent-header">' + emoji + ' ' + payload.agent + ' <span class="stream-time">⏱ ' + (payload.time || '') + '</span></div></div>'
+          }
+          
+          aiResult.value = {
+            title: finalized ? '🧠 深度研判结果' : '🧠 深度分析进行中...',
+            text: progressHtml
+          }
+        } catch {}
+      }
+    }
+    
+    if (!finalized) {
+      progressHtml += '<div class="stream-error">❌ 连接中断</div>'
+      aiResult.value = { title: '❌ 连接中断', text: progressHtml }
+    }
+  } catch (e) {
+    aiResult.value = { title: '❌ 分析失败', text: e.message }
+  } finally {
+    deepLoading.value = false
+  }
+}
+
+function _escHtml(s) {
+  if (!s) return ''
+  var r = s.split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;')
+  return r.split(String.fromCharCode(10)).join('<br>')
+}
+
+// 自选股 (后端 API)
+const favorites = ref([])
+const isFav = ref(false)
+
+async function loadFavorites() {
+  try {
+    const resp = await fetch('/api/v1/favorites')
+    const list = await resp.json()
+    favorites.value = list.map(f => f.symbol)
+    const sym = route.params.symbol || props.symbol
+    isFav.value = favorites.value.includes(sym)
+  } catch { }
+}
+
+async function addFavorite() {
+  const sym = route.params.symbol || props.symbol
+  try {
+    await fetch('/api/v1/favorites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: sym, name: stockName.value })
+    })
+    isFav.value = true
+    showToast('已添加自选')
+    loadFavorites()
+  } catch {
+    showToast('操作失败')
+  }
+}
+
+async function removeFavorite() {
+  const sym = route.params.symbol || props.symbol
+  try {
+    await fetch('/api/v1/favorites/' + sym, { method: 'DELETE' })
+    isFav.value = false
+    showToast('已取消自选')
+    loadFavorites()
+  } catch {
+    showToast('操作失败')
+  }
+}
 
 const showBigBuy = computed(() => period.value === 'daily')
 
@@ -179,18 +474,9 @@ watch(() => route.params.symbol, (newSym) => {
 
 onMounted(() => {
   loadData()
+  loadFavorites()
+  loadBigBuyRank()
 })
-
-function addFavorite() {
-  const sym = route.params.symbol || props.symbol
-  if (favorites.value.includes(sym)) {
-    showToast('已在自选中')
-    return
-  }
-  favorites.value.push(sym)
-  localStorage.setItem('stock_favorites', JSON.stringify(favorites.value))
-  showToast('已添加自选')
-}
 
 async function loadData() {
   showToast({ message: '加载中...', type: 'loading', duration: 0 })
@@ -338,22 +624,24 @@ function renderMainChart(lw, times) {
 
   mainChart = createChart(chartRef.value, {
     layout: {
-      background: { type: ColorType.Solid, color: '#fff' },
+      background: { type: ColorType.Solid, color: '#FFFDE7' },
       textColor: '#333',
     },
     grid: {
-      vertLines: { color: '#f0f0f0' },
-      horzLines: { color: '#f0f0f0' },
+      vertLines: { color: '#f5f0e0' },
+      horzLines: { color: '#f5f0e0' },
     },
     crosshair: { mode: 0 },
     rightPriceScale: {
-      borderColor: '#e0e0e0',
+      borderColor: '#e8e0c8',
     },
     timeScale: {
-      borderColor: '#e0e0e0',
+      borderColor: '#e8e0c8',
       timeVisible: true,
       secondsVisible: false,
     },
+    handleScroll: { vertTouchDrag: true, horzTouchDrag: true, mouseWheel: true },
+    handleScale: { axisPressedMouse: true, mouseWheel: true, pinch: true },
     width: chartRef.value.clientWidth,
     height: 360,
   })
@@ -404,23 +692,25 @@ function renderMacdChart(lw, times) {
 
   macdChart = createChart(macdChartRef.value, {
     layout: {
-      background: { type: ColorType.Solid, color: '#fff' },
+      background: { type: ColorType.Solid, color: '#FFFDE7' },
       textColor: '#666',
     },
     grid: {
-      vertLines: { color: '#f5f5f5' },
-      horzLines: { color: '#f5f5f5' },
+      vertLines: { color: '#f5f0e0' },
+      horzLines: { color: '#f5f0e0' },
     },
     crosshair: { mode: 0 },
     rightPriceScale: {
-      borderColor: '#e0e0e0',
+      borderColor: '#e8e0c8',
       scaleMargins: { top: 0.1, bottom: 0.1 },
     },
     timeScale: {
-      borderColor: '#e0e0e0',
+      borderColor: '#e8e0c8',
       timeVisible: true,
       secondsVisible: false,
     },
+    handleScroll: false,
+    handleScale: false,
     width: chartRef.value?.clientWidth || 360,
     height: 120,
   })
@@ -477,23 +767,25 @@ function renderBigbuyChart(lw, times) {
 
   bigbuyChart = createChart(bigbuyChartRef.value, {
     layout: {
-      background: { type: ColorType.Solid, color: '#fff' },
+      background: { type: ColorType.Solid, color: '#FFFDE7' },
       textColor: '#666',
     },
     grid: {
-      vertLines: { color: '#f5f5f5' },
-      horzLines: { color: '#f5f5f5' },
+      vertLines: { color: '#f5f0e0' },
+      horzLines: { color: '#f5f0e0' },
     },
     crosshair: { mode: 0 },
     rightPriceScale: {
-      borderColor: '#e0e0e0',
+      borderColor: '#e8e0c8',
       scaleMargins: { top: 0.1, bottom: 0.1 },
     },
     timeScale: {
-      borderColor: '#e0e0e0',
+      borderColor: '#e8e0c8',
       timeVisible: true,
       secondsVisible: false,
     },
+    handleScroll: false,
+    handleScale: false,
     width: chartRef.value?.clientWidth || 360,
     height: 120,
   })
@@ -543,71 +835,70 @@ function renderRatioChart(lw, times) {
   // 完全复制大单买入的图表配置
   ratioChart = createChart(ratioChartRef.value, {
     layout: {
-      background: { type: ColorType.Solid, color: '#fff' },
+      background: { type: ColorType.Solid, color: '#FFFDE7' },
       textColor: '#666',
     },
     grid: {
-      vertLines: { color: '#f5f5f5' },
-      horzLines: { color: '#f5f5f5' },
+      vertLines: { color: '#f5f0e0' },
+      horzLines: { color: '#f5f0e0' },
     },
     crosshair: { mode: 0 },
     rightPriceScale: {
-      borderColor: '#e0e0e0',
+      borderColor: '#e8e0c8',
       scaleMargins: { top: 0.1, bottom: 0.1 },
       visible: true,
     },
     timeScale: {
-      borderColor: '#e0e0e0',
+      borderColor: '#e8e0c8',
       timeVisible: true,
       secondsVisible: false,
     },
+    handleScroll: false,
+    handleScale: false,
     width: chartRef.value?.clientWidth || 360,
     height: 120,
   })
 
-  // 完全复制大单买入的 series 配置
+  // 完全复制大单买入的 series 配置，只换颜色（橙色）
   ratioHistogram = ratioChart.addSeries(HistogramSeries, {
     color: 'rgba(255, 165, 0, 0.7)',
-    priceFormat: { type: 'volume', precision: 0 },
+    priceFormat: { type: 'price', precision: 1, suffix: '%' },
     lastValueVisible: false,
   })
 
-  // 大单数据映射：date -> data
+  // 大单数据映射
   const bbMap = {}
   bigbuyData.value.forEach(d => { bbMap[d.date.slice(0, 10)] = d })
 
-  // 与大单买入完全相同的日期构建方式，仅修改 value 计算
-  const ratioData = klineData.value.map((d, i) => {
+  // 与大单买入相同的结构，数据改为：合计金额/当日成交额，归一化
+  let maxRatio = 0
+  const rawData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
     const match = bbMap[date]
     const klineAmount = d.amount || 0
-    const rawRatio = (match && klineAmount > 0) ? (match.amount / klineAmount) : 0
-    return {
-      time: times[i],
-      rawRatio,
-    }
+    const ratio = (match && klineAmount > 0) ? (match.amount / klineAmount) : 0
+    if (ratio > maxRatio) maxRatio = ratio
+    return { time: times[i], ratio, count: match?.count || 0 }
   })
+  if (maxRatio === 0) maxRatio = 1
 
-  // 归一化
-  const maxRatio = Math.max(0.001, ...ratioData.map(r => r.rawRatio))
-
-  const chartData = ratioData.map(r => ({
+  const chartData = rawData.map(r => ({
     time: r.time,
-    value: r.rawRatio / maxRatio,
-    color: r.rawRatio > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
+    value: (r.ratio / maxRatio) * 100,
+    color: r.ratio > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
   }))
 
   if (chartData.length) ratioHistogram.setData(chartData)
 
-  // 柱顶标注（与大单买入相同的 markers 写法）
-  const nonZero = chartData.filter(d => d.value > 0)
+  // 柱顶标注百分比
+  const nonZero = rawData.filter(r => r.ratio > 0)
   if (nonZero.length && typeof ratioHistogram.setMarkers === 'function') {
-    const markers = nonZero.map(d => ({
-      time: d.time,
+    const markers = nonZero.map(r => ({
+      time: r.time,
       position: 'aboveBar',
       color: '#ff8c00',
       shape: 'arrowUp',
-      text: String(((bbMap[String(d.time)]?.amount || 0) / (klineData.value.find(k => k.date.slice(0,10) === d.time)?.amount || 1) * 100).toFixed(1) + '%'),
+      text: (r.ratio * 100).toFixed(1) + '%',
     }))
     ratioHistogram.setMarkers(markers)
   }
@@ -675,6 +966,44 @@ function renderMainIndicators(lw) {
       maLines.push(line2)
     }
   }
+
+  // ═══ 画出最近7日最低到最高点的连线(斜线) ═══
+  if (klineData.value.length >= 3) {
+    const last7 = klineData.value.slice(-7)
+    let highest = -Infinity
+    let lowest = Infinity
+    let highTime = null
+    let lowTime = null
+    last7.forEach(d => {
+      const h = d.high || d.最高 || 0
+      const l = d.low || d.最低 || 0
+      const t = makeTime(d)
+      if (h > highest) { highest = h; highTime = t }
+      if (l < lowest) { lowest = l; lowTime = t }
+    })
+    
+    if (highTime && lowTime && highest > -Infinity && lowest < Infinity && highTime !== lowTime) {
+      // 确保时间按先后顺序
+      const t1 = highTime < lowTime ? highTime : lowTime
+      const v1 = highTime < lowTime ? highest : lowest
+      const t2 = highTime > lowTime ? highTime : lowTime
+      const v2 = highTime > lowTime ? highest : lowest
+
+      const diagLine = mainChart.addSeries(LineSeries, {
+        color: '#000000',
+        lineWidth: 2,
+        lineStyle: 0,  // 实线
+        lastValueVisible: true,
+        priceLineVisible: false,
+        crosshairMarkerVisible: true,
+      })
+      diagLine.setData([
+        { time: t1, value: v1 },
+        { time: t2, value: v2 },
+      ])
+      maLines.push(diagLine)
+    }
+  }
 }
 
 // ====== 时间轴联动 ======
@@ -733,10 +1062,79 @@ function showMenu() {
 </script>
 
 <style scoped>
-.kline-page {
+.kline-split {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+.right-kline {
+  flex: 1;
+  overflow-y: auto;
   background: #fff;
-  min-height: 100vh;
   padding-bottom: 70px;
+}
+.left-sidebar {
+  width: 180px;
+  min-width: 180px;
+  background: #f5f7fa;
+  border-right: 1px solid #e0e0e0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-header {
+  padding: 12px 10px;
+  font-weight: 700;
+  font-size: 14px;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  transition: background 0.15s;
+  gap: 4px;
+}
+.sidebar-item:hover { background: #e8f0fe; }
+.sidebar-item.active { background: #d0e3ff; }
+.rank-num {
+  width: 20px;
+  font-size: 11px;
+  color: #999;
+  text-align: right;
+  margin-right: 4px;
+}
+.rank-name {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rank-code {
+  font-size: 11px;
+  color: #999;
+}
+.rank-days {
+  font-size: 11px;
+  color: #e74c3c;
+  font-weight: 600;
+}
+.sidebar-empty {
+  padding: 20px;
+  text-align: center;
+  color: #999;
+  font-size: 13px;
 }
 .price-bar {
   padding: 8px 16px;
@@ -840,5 +1238,198 @@ function showMenu() {
   font-size: 11px;
   color: #999;
   text-align: center;
+}
+
+/* AI 分析结果区域 */
+.ai-result {
+  margin: 8px 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.ai-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+.ai-result-body {
+  padding: 14px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ai-signal {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  text-align: center;
+}
+.ai-signal.buy { background: #e8f5e9; color: #2e7d32; }
+.ai-signal.watch { background: #fff8e1; color: #f57f17; }
+.ai-signal.pass, .ai-signal.sell { background: #ffebee; color: #c62828; }
+.ai-signal.hold { background: #e3f2fd; color: #1565c0; }
+.ai-detail {
+  margin: 4px 0;
+  font-size: 13px;
+}
+.ai-reason {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #555;
+}
+
+/* 流式进度显示 */
+.ai-progress {
+  text-align: center;
+  padding: 16px 0;
+}
+.progress-item {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.progress-status {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 4px;
+}
+.progress-time {
+  font-size: 11px;
+  color: #999;
+}
+.progress-content {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #f8f8f8;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #444;
+  line-height: 1.5;
+  text-align: left;
+  max-height: 150px;
+  overflow-y: auto;
+  border-left: 3px solid #667eea;
+}
+
+/* 累积流式日志样式 */
+.ai-stream-log {
+  max-height: 400px;
+  overflow-y: auto;
+}
+.stream-start {
+  padding: 8px;
+  color: #999;
+  font-size: 12px;
+  text-align: center;
+}
+.stream-agent-card {
+  margin: 6px 0;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  border-left: 3px solid #667eea;
+}
+.stream-agent-header {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.stream-time {
+  font-weight: 400;
+  font-size: 11px;
+  color: #999;
+  margin-left: 8px;
+}
+.stream-agent-content {
+  font-size: 12px;
+  color: #444;
+  line-height: 1.5;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: #fafafa;
+  border-radius: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.stream-final {
+  margin: 8px 0;
+  padding: 12px;
+  background: #f0f8ff;
+  border: 1px solid #b3d8f0;
+  border-radius: 8px;
+}
+.stream-final-header {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 8px;
+  color: #1565c0;
+}
+.stream-error {
+  padding: 8px;
+  color: #c62828;
+  text-align: center;
+}
+
+/* 三栏分析布局 */
+.three-col-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.analysis-col {
+  flex: 1;
+  min-width: 200px;
+  border-radius: 8px;
+  padding: 10px;
+  border: 1px solid #e0e0e0;
+  max-height: 400px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.col-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(0,0,0,0.1);
+}
+.col-content {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #333;
+  overflow-y: auto;
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.col-empty {
+  color: #999;
+  font-size: 12px;
+  text-align: center;
+  padding: 20px;
+}
+.final-conclusion {
+  margin-top: 12px;
+  padding: 14px;
+  background: #f0f8ff;
+  border: 1px solid #b3d8f0;
+  border-radius: 10px;
+}
+.conclusion-title {
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 8px;
+  color: #1565c0;
 }
 </style>

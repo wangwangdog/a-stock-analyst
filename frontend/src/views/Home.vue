@@ -1,65 +1,107 @@
 <template>
-  <div class="home">
-    <van-nav-bar title="A-Stock Analyst" left-text="胖磊 🦞" />
-    <div class="search-box">
-      <van-search
-        v-model="keyword"
-        placeholder="输入股票代码或名称，如 000001"
-        @search="onSearch"
-        @clear="onClear"
-        autofocus
-      />
-    </div>
-
-    <div class="quick-links">
-      <van-grid :column-num="3" :border="false">
-        <van-grid-item icon="chart-trending-o" text="热门K线" to="/kline/000001" />
-        <van-grid-item icon="info-o" text="自选股" @click="showFavorites = true" />
-        <van-grid-item icon="filter-o" text="筛选器" to="/screener" />
-      </van-grid>
-    </div>
-
-    <div v-if="recentStocks.length" class="recent-section">
-      <van-cell-group title="最近查看">
-        <van-cell
-          v-for="s in recentStocks"
-          :key="s.symbol"
-          :title="s.name"
-          :label="s.symbol"
-          is-link
-          @click="$router.push('/kline/' + s.symbol)"
+  <div class="home-split">
+    <!-- 左侧：大笔买入排名 -->
+    <div class="left-sidebar">
+      <div class="sidebar-header">📊 大笔买入排名</div>
+      <div class="sidebar-list">
+        <div
+          v-for="(item, idx) in bigBuyRank"
+          :key="item.symbol"
+          class="sidebar-item"
+          :class="{ active: activeStock === item.symbol }"
+          @click="selectStock(item)"
         >
-          <template #icon>
-            <van-tag round plain type="primary" style="margin-right:8px">{{ s.symbol }}</van-tag>
-          </template>
-        </van-cell>
-      </van-cell-group>
-    </div>
-
-    <div v-if="results.length" class="result-section">
-      <van-cell-group title="搜索结果">
-        <van-cell
-          v-for="s in results"
-          :key="s.symbol || s.code"
-          :title="s.name"
-          :label="s.symbol || s.code"
-          is-link
-          @click="goStock(s)"
-        >
-          <template #icon>
-            <van-tag round plain type="primary" style="margin-right:8px">{{ s.symbol || s.code }}</van-tag>
-          </template>
-        </van-cell>
-      </van-cell-group>
-    </div>
-
-    <van-empty v-if="!loading && keyword && !results.length && !recentStocks.length" description="没有匹配结果" />
-    
-    <van-action-sheet v-model:show="showFavorites" title="自选股">
-      <div style="padding: 16px;">
-        <van-empty description="暂无自选股，搜索后添加到自选" />
+          <span class="rank-num">{{ idx + 1 }}</span>
+          <span class="rank-name">{{ item.name || item.symbol }}</span>
+          <span class="rank-code">{{ item.symbol }}</span>
+          <span class="rank-days">{{ item.days }}天</span>
+        </div>
+        <div v-if="!bigBuyRank.length" class="sidebar-empty">暂无数据</div>
       </div>
-    </van-action-sheet>
+    </div>
+
+    <!-- 右侧：原有主页面内容 -->
+    <div class="right-content" v-if="!activeStock">
+      <van-nav-bar title="A-Stock Analyst" left-text="胖磊 🦞">
+        <template #right>
+          <span style="font-size:12px;color:#999;margin-right:8px" v-if="username">{{ username }}</span>
+          <van-icon name="logout" @click="doLogout" style="padding:4px" />
+        </template>
+      </van-nav-bar>
+      <div class="search-box">
+        <van-search
+          v-model="keyword"
+          placeholder="输入股票代码或名称，如 000001"
+          @search="onSearch"
+          @clear="onClear"
+          autofocus
+        />
+      </div>
+
+      <div class="quick-links">
+        <van-grid :column-num="3" :border="false">
+          <van-grid-item icon="chart-trending-o" text="热门K线" to="/kline/000001" />
+          <van-grid-item icon="info-o" text="自选股" @click="showFavorites = true; loadFavs()" />
+          <van-grid-item icon="filter-o" text="筛选器" to="/screener" />
+        </van-grid>
+      </div>
+
+      <div v-if="recentStocks.length" class="recent-section">
+        <van-cell-group title="最近查看">
+          <van-cell
+            v-for="s in recentStocks"
+            :key="s.symbol"
+            :title="s.name"
+            :label="s.symbol"
+            is-link
+            @click="$router.push('/kline/' + s.symbol)"
+          >
+            <template #icon>
+              <van-tag round plain type="primary" style="margin-right:8px">{{ s.symbol }}</van-tag>
+            </template>
+          </van-cell>
+        </van-cell-group>
+      </div>
+
+      <div v-if="results.length" class="result-section">
+        <van-cell-group title="搜索结果">
+          <van-cell
+            v-for="s in results"
+            :key="s.symbol || s.code"
+            :title="s.name"
+            :label="s.symbol || s.code"
+            is-link
+            @click="goStock(s)"
+          >
+            <template #icon>
+              <van-tag round plain type="primary" style="margin-right:8px">{{ s.symbol || s.code }}</van-tag>
+            </template>
+          </van-cell>
+        </van-cell-group>
+      </div>
+
+      <van-empty v-if="!loading && keyword && !results.length && !recentStocks.length" description="没有匹配结果" />
+      
+      <van-action-sheet v-model:show="showFavorites" title="自选股">
+        <div style="padding: 16px;">
+          <van-cell-group v-if="favList.length">
+            <van-cell
+              v-for="f in favList" :key="f.symbol"
+              :title="f.name || f.symbol"
+              :label="f.symbol"
+              is-link
+              @click="$router.push('/kline/' + f.symbol); showFavorites = false"
+            >
+              <template #icon>
+                <van-tag round plain type="primary" style="margin-right:8px">{{ f.symbol }}</van-tag>
+              </template>
+            </van-cell>
+          </van-cell-group>
+          <van-empty v-else description="暂无自选股，搜索后添加到自选" />
+        </div>
+      </van-action-sheet>
+    </div>
+
   </div>
 </template>
 
@@ -76,6 +118,46 @@ const loading = ref(false)
 const allStocks = ref([])
 const recentStocks = ref([])
 const showFavorites = ref(false)
+const favList = ref([])
+const username = ref('')
+
+// 左侧大单排名
+const bigBuyRank = ref([])
+const activeStock = ref('')
+const activeStockName = ref('')
+
+function selectStock(item) {
+  router.push('/kline/' + item.symbol)
+}
+
+async function loadFavs() {
+  try {
+    const resp = await fetch('/api/v1/favorites')
+    favList.value = await resp.json()
+  } catch {}
+}
+
+async function loadBigBuyRank() {
+  try {
+    const resp = await fetch('/api/v1/bigbuy-rank')
+    bigBuyRank.value = await resp.json()
+  } catch {}
+}
+
+async function doLogout() {
+  await fetch('/api/auth/logout', { method: 'POST' })
+  router.push('/login')
+}
+
+onMounted(async () => {
+  loadFavs()
+  loadBigBuyRank()
+  try {
+    const resp = await fetch('/api/auth/me')
+    const data = await resp.json()
+    if (data.logged_in) username.value = data.username
+  } catch {}
+})
 
 onMounted(async () => {
   // 尝试加载股票列表（预缓存）
@@ -149,20 +231,80 @@ function loadRecent() {
 </script>
 
 <style scoped>
-.home {
-  padding-bottom: 60px;
+.home-split {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
 }
-.search-box {
+.left-sidebar {
+  width: 180px;
+  min-width: 180px;
+  background: #f5f7fa;
+  border-right: 1px solid #e0e0e0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-header {
+  padding: 12px 10px;
+  font-weight: 700;
+  font-size: 14px;
   background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
-.quick-links {
-  margin: 8px 0;
-  background: #fff;
+.sidebar-list {
+  flex: 1;
+  overflow-y: auto;
 }
-.recent-section {
-  margin-top: 8px;
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  transition: background 0.15s;
+  gap: 4px;
 }
-.result-section {
-  margin-top: 8px;
+.sidebar-item:hover { background: #e8f0fe; }
+.sidebar-item.active { background: #d0e3ff; }
+.rank-num {
+  width: 20px;
+  font-size: 11px;
+  color: #999;
+  text-align: right;
+  margin-right: 4px;
 }
+.rank-name {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rank-code {
+  font-size: 11px;
+  color: #999;
+}
+.rank-days {
+  font-size: 11px;
+  color: #e74c3c;
+  font-weight: 600;
+}
+.sidebar-empty {
+  padding: 20px;
+  text-align: center;
+  color: #999;
+  font-size: 13px;
+}
+.right-content {
+  flex: 1;
+  overflow-y: auto;
+}
+.search-box { background: #fff; }
+.quick-links { margin: 8px 0; background: #fff; }
+.recent-section { margin-top: 8px; }
+.result-section { margin-top: 8px; }
 </style>

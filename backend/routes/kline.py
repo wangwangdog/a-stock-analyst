@@ -235,6 +235,28 @@ async def get_bigbuy(symbol: str, days: int = Query(60, description="回溯天�
         conn.close()
 
 
+@router.get("/bigbuy-rank")
+async def get_bigbuy_rank():
+    """大笔买入天数排名（按出现天数倒序）"""
+    from data.cache import _get_conn
+    conn = _get_conn()
+    rows = conn.execute("""
+        SELECT 股票代码, 股票名称, COUNT(DISTINCT 买入日期) as 天数, SUM(大笔买数) as 总笔数
+        FROM hzeveryday
+        WHERE 股票代码 NOT LIKE '9%'
+          AND 股票名称 NOT LIKE '%ST%'
+          AND 股票名称 NOT LIKE '%退%'
+        GROUP BY 股票代码
+        ORDER BY 天数 DESC, 总笔数 DESC
+        LIMIT 200
+    """).fetchall()
+    conn.close()
+    return [
+        {"symbol": r[0], "name": r[1] or "", "days": r[2], "total_buys": r[3]}
+        for r in rows
+    ]
+
+
 @router.get("/screener")
 async def screen_stocks(
     market_cap_min: Optional[float] = Query(None, description="最小总市值(亿元)"),

@@ -161,8 +161,10 @@ def _validate_dfs(df_ak: pd.DataFrame, df_bs: pd.DataFrame, symbol: str) -> list
 
         validation_records.append(record)
 
-    if total_count > 0 and failed_count > 0:
-        logger.warning(f"[校验] {symbol}: {failed_count}/{total_count} 天数据不一致")
+    if total_count > 0 and failed_count > 0 and failed_count > total_count * 0.5:
+        logger.warning(f"[校验] {symbol}: {failed_count}/{total_count} 天数据不一致(>50%)")
+    elif failed_count > 0:
+        logger.debug(f"[校验] {symbol}: {failed_count}/{total_count} 天数据不一致")
 
     return validation_records
 

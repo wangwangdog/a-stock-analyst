@@ -43,6 +43,19 @@ def migrate_and_cleanup():
 
         # 3. 逐组处理：汇总 -> 插入 -> 删除
         for buy_date, stock_code in groups:
+            # 补齐股票代码到6位
+            raw_code = stock_code.strip()
+            padded_code = raw_code.zfill(6)
+            
+            # 剔除9开头的股票
+            if padded_code.startswith('9'):
+                print(f"跳过9开头股票：日期 {buy_date}，代码 {padded_code}")
+                cursor.execute("""
+                DELETE FROM stock_records
+                WHERE 买入日期 = ? AND 股票代码 = ?
+                """, (buy_date, stock_code))
+                continue
+
             cursor.execute("""
             SELECT
                 SUM(买入数量) AS 合计手数,
@@ -54,7 +67,7 @@ def migrate_and_cleanup():
             """, (buy_date, stock_code))
             row = cursor.fetchone()
             if row is None or row[0] is None:
-                print(f"警告：日期 {buy_date} 代码 {stock_code} 无有效数据，跳过")
+                print(f"警告：日期 {buy_date} 代码 {padded_code} 无有效数据，跳过")
                 continue
 
             sum_shou, sum_amount, big_count, stock_name = row
@@ -62,14 +75,14 @@ def migrate_and_cleanup():
             cursor.execute("""
             INSERT INTO hzeveryday (股票代码, 股票名称, 大笔买数, 合计金额, 合计手数, 买入日期)
             VALUES (?, ?, ?, ?, ?, ?)
-            """, (stock_code, stock_name, big_count, sum_amount, sum_shou, buy_date))
+            """, (padded_code, stock_name, big_count, sum_amount, sum_shou, buy_date))
 
             cursor.execute("""
             DELETE FROM stock_records
             WHERE 买入日期 = ? AND 股票代码 = ?
             """, (buy_date, stock_code))
 
-            print(f"已处理：日期 {buy_date}，股票代码 {stock_code}，共 {big_count} 条记录，"
+            print(f"已处理：日期 {buy_date}，股票代码 {padded_code}，共 {big_count} 条记录，"
                   f"合计手数 {sum_shou}，合计金额 {sum_amount}")
 
         conn.commit()
