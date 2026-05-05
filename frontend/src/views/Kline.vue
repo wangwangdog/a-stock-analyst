@@ -246,16 +246,18 @@ const cachedQuickResult = ref(null)
 const cachedDeepResult = ref(null)
 
 async function checkAnalysisCache() {
-  const sym = route.params.symbol || props.symbol
+  const sym = (route.params.symbol || props.symbol)
+  const u = getU()
+  if (!u) return
   try {
     const [q, d] = await Promise.all([
       fetch('/api/auth/cache/check', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({symbol: sym, analysis_type: 'quick'})
+        body: JSON.stringify({username: u, symbol: sym, analysis_type: 'quick'})
       }).then(r => r.json()),
       fetch('/api/auth/cache/check', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({symbol: sym, analysis_type: 'deep'})
+        body: JSON.stringify({username: u, symbol: sym, analysis_type: 'deep'})
       }).then(r => r.json())
     ])
     if (q.cached) { hasQuickCache.value = true; cachedQuickResult.value = q.result }
@@ -303,7 +305,8 @@ async function doQuickAnalysis() {
     if (data.success) {
       // 保存缓存
       try {
-        const cacheBody = JSON.stringify({symbol: sym, analysis_type: 'quick', result_json: JSON.stringify(data)})
+        const u = getU()
+        const cacheBody = JSON.stringify({username: u, symbol: sym, analysis_type: 'quick', result_json: JSON.stringify(data)})
         fetch('/api/auth/cache/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: cacheBody })
         hasQuickCache.value = true
         cachedQuickResult.value = data
@@ -396,7 +399,8 @@ async function doDeepAnalysis() {
             finalized = true
             // 保存缓存
             try {
-              const cacheBody = JSON.stringify({symbol: sym, analysis_type: 'deep', result_json: JSON.stringify(payload.result)})
+              const u = getU()
+              const cacheBody = JSON.stringify({username: u, symbol: sym, analysis_type: 'deep', result_json: JSON.stringify(payload.result)})
               fetch('/api/auth/cache/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: cacheBody })
               hasDeepCache.value = true
               cachedDeepResult.value = payload.result
@@ -481,9 +485,13 @@ function _escHtml(s) {
 const favorites = ref([])
 const isFav = ref(false)
 
+function getU() { return localStorage.getItem('username') || '' }
+
 async function loadFavorites() {
+  const u = getU()
+  if (!u) return
   try {
-    const resp = await fetch('/api/v1/favorites')
+    const resp = await fetch('/api/v1/favorites?username=' + encodeURIComponent(u))
     const list = await resp.json()
     favorites.value = list.map(f => f.symbol)
     const sym = route.params.symbol || props.symbol
@@ -493,11 +501,13 @@ async function loadFavorites() {
 
 async function addFavorite() {
   const sym = route.params.symbol || props.symbol
+  const u = getU()
+  if (!u) return
   try {
     await fetch('/api/v1/favorites', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol: sym, name: stockName.value })
+      body: JSON.stringify({ username: u, symbol: sym, name: stockName.value })
     })
     isFav.value = true
     showToast('已添加自选')
@@ -509,8 +519,10 @@ async function addFavorite() {
 
 async function removeFavorite() {
   const sym = route.params.symbol || props.symbol
+  const u = getU()
+  if (!u) return
   try {
-    await fetch('/api/v1/favorites/' + sym, { method: 'DELETE' })
+    await fetch('/api/v1/favorites/' + encodeURIComponent(sym) + '?username=' + encodeURIComponent(u), { method: 'DELETE' })
     isFav.value = false
     showToast('已取消自选')
     loadFavorites()

@@ -119,20 +119,24 @@ const allStocks = ref([])
 const recentStocks = ref([])
 const showFavorites = ref(false)
 const favList = ref([])
-const username = ref('')
+const username = ref(localStorage.getItem('username') || '')
 
 // 左侧大单排名
 const bigBuyRank = ref([])
 const activeStock = ref('')
 const activeStockName = ref('')
 
+function getU() { return localStorage.getItem('username') || '' }
+
 function selectStock(item) {
   router.push('/kline/' + item.symbol)
 }
 
 async function loadFavs() {
+  const u = getU()
+  if (!u) return
   try {
-    const resp = await fetch('/api/v1/favorites')
+    const resp = await fetch('/api/v1/favorites?username=' + encodeURIComponent(u))
     favList.value = await resp.json()
   } catch {}
 }
@@ -145,18 +149,13 @@ async function loadBigBuyRank() {
 }
 
 async function doLogout() {
-  await fetch('/api/auth/logout', { method: 'POST' })
+  localStorage.removeItem('username')
   router.push('/login')
 }
 
 onMounted(async () => {
   loadFavs()
   loadBigBuyRank()
-  try {
-    const resp = await fetch('/api/auth/me')
-    const data = await resp.json()
-    if (data.logged_in) username.value = data.username
-  } catch {}
 })
 
 onMounted(async () => {

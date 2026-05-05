@@ -18,22 +18,21 @@ const router = createRouter({
   routes,
 })
 
-// Auth guard
-router.beforeEach(async (to, from, next) => {
+// Auth guard: check localStorage
+router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth) {
-    try {
-      const resp = await fetch('/api/auth/me')
-      const data = await resp.json()
-      if (!data.logged_in) {
-        next('/login')
-        return
-      }
-    } catch {
+    const username = localStorage.getItem('username')
+    if (!username) {
       next('/login')
       return
     }
   }
   next()
 })
+
+// Helper: get current username
+export function getUsername() {
+  return localStorage.getItem('username') || ''
+}
 
 export default router

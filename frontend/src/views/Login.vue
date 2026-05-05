@@ -50,10 +50,13 @@ async function doLogin() {
     })
     const data = await resp.json()
     if (data.success) {
+      localStorage.setItem('username', username.value.trim())
       router.push('/')
+    } else {
+      showToast('登录失败')
     }
   } catch (e) {
-    showToast('登录失败')
+    showToast('登录失败: ' + e.message)
   } finally {
     loading.value = false
   }
