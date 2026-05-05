@@ -80,7 +80,35 @@ def cmd_daily():
         sys.exit(1)
 
 
+def _check_trading_day() -> bool:
+    """通过 baostock 判断今天是不是交易日，非交易日直接退出。"""
+    import baostock as bs
+    from datetime import date
+    today = date.today().strftime("%Y-%m-%d")
+    lg = bs.login()
+    if lg.error_code != "0":
+        print(f"⚠ baostock 登录失败，默认按交易日处理: {lg.error_msg}")
+        return True
+    try:
+        rs = bs.query_trade_dates(start_date=today, end_date=today)
+        while rs.next():
+            row = rs.get_row_data()
+            if row[0] == today:
+                is_trading = row[1] == "1"
+                if not is_trading:
+                    print(f"📅 {today} 非交易日，跳过本次同步")
+                return is_trading
+        print(f"📅 {today} 未找到日期记录，视为非交易日")
+        return False
+    finally:
+        bs.logout()
+
+
 def main():
+    # 定时任务入口：判断今天是否交易日，非交易日直接退出
+    if not _check_trading_day():
+        sys.exit(0)
+
     parser = argparse.ArgumentParser(description="Sequoia-X 日常数据同步与选股")
     parser.add_argument("--backfill", action="store_true")
     parser.add_argument("--no-strategy", action="store_true")

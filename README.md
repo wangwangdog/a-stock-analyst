@@ -2,6 +2,9 @@
 
 A 股数据分析 + AI 多 Agent 研判 Web 工具。胖磊 🦞 出品。
 
+**v0.1** — 首个可用版本。含 K 线分析、AI 多 Agent 研判、量化选股、盘口异动数据流水线。
+---
+
 ---
 
 ## 功能一览
@@ -18,6 +21,18 @@ A 股数据分析 + AI 多 Agent 研判 Web 工具。胖磊 🦞 出品。
   - 基本面分析师 · 技术分析师 · 情绪分析师 · 新闻分析师
   - 多头/空头研究员辩论 → 交易员决策 → 风控审核
   - 三栏展示：基本面分析 / 多头观点 / 空头观点
+
+### 📊 量化选股（集成 Sequoia-X）
+- 6 大内置策略：海龟 / 均线放量 / 高窄旗形 / 涨停洗盘 / 跌停反包 / RPS 突破
+- 策略运行与选股结果可视化
+- 多策略交叉热股整合
+- 个股策略信号历史查询
+- baostock 数据引擎，8 进程并行增量同步
+
+### ⏰ 智能数据流水线
+- **交易日自动判断**：所有定时任务（数据同步/盘口异动/大单汇总）自动识别交易日，非交易日跳过
+- **盘口异动**：自动获取并解析 20 类盘口异动数据，去噪入库
+- **全流程闭环**：数据获取 → 入库 → 汇总 → 分析，一键串联
 
 ### 📋 选股与自选
 - 按行业/市值筛选
@@ -95,8 +110,13 @@ a-stock-analyst/
 │   │   └── favorites.py          # 自选股 CRUD API
 │   │
 │   ├── scripts/
+│   │   ├── daily_sync.py         # Sequoia-X 日常数据同步+策略选股
 │   │   ├── hzeveryday.py         # 大单数据汇总（补齐代码6位+剔除9开头）
-│   │   └── pkyd.py               # 定时任务入口
+│   │   ├── pkyd.py               # 盘口异动数据获取+解析+入库流水线
+│   │   └── wsqllite.py           # Excel 盘口数据写入SQLite
+│   │
+│   ├── sequoia/
+│   │   └── bridge.py             # Sequoia-X 桥接模块（API+策略运行）
 │   │
 │   └── tradingagents/            # TradingAgents-CN 多 Agent 核心 (Apache 2.0)
 │       ├── agents/               # 各分析师 Agent 实现
@@ -142,6 +162,16 @@ a-stock-analyst/
 | `POST` | `/api/ai/quick` | ⚡ 快速分析 |
 | `POST` | `/api/ai/analyze` | 🧠 深度分析 |
 | `POST` | `/api/ai/analyze/stream` | 🧠 深度分析(SSE流式进度) |
+| `GET` | `/api/v1/sequoia/status` | Sequoia-X 引擎状态 |
+| `GET` | `/api/v1/sequoia/strategies` | Sequoia-X 策略列表 |
+| `POST` | `/api/v1/sequoia/run/{key}` | 运行单个策略 |
+| `POST` | `/api/v1/sequoia/run-all` | 运行全部策略 |
+| `GET` | `/api/v1/sequoia/history` | 策略运行历史 |
+| `GET` | `/api/v1/sequoia/signals/{symbol}` | 个股策略信号 |
+| `GET` | `/api/v1/sequoia/results/{key}` | 策略最新选股 |
+| `GET` | `/api/v1/sequoia/hot-stocks` | 多策略交叉热股 |
+| `POST` | `/api/v1/sequoia/sync` | 数据增量同步 |
+| `POST` | `/api/v1/sequoia/backfill` | 全市场数据回填 |
 
 ---
 
@@ -161,12 +191,42 @@ a-stock-analyst/
 
 ## 数据更新
 
-数据通过定时任务自动同步，每交易日采集大单买入数据到 `hzeveryday` 表：
+数据通过定时任务自动同步，**所有任务均自动判断交易日，非交易日直接跳过**。
+
+### 一键全量定时任务
 
 ```bash
 cd backend/scripts
-python3 hzeveryday.py     # 汇总大单数据
-python3 pkyd.py            # 全量定时任务
+python3 pkyd.py            # 盘口异动获取 → 自动入库 → 自动汇总到大单表
+```
+
+### 分步执行
+
+```bash
+cd backend/scripts
+python3 daily_sync.py      # Sequoia-X 数据增量同步（含策略选股）
+python3 pkyd.py             # 盘口异动数据获取+入库+汇总
+```
+
+### 单步执行
+
+```bash
+# 盘口异动 Excel 解析
+python3 pkyd.py
+
+# 写入数据库（pkyd.py 自动调用，也可单独跑）
+python3 wsqllite.py
+
+# 大单数据汇总
+python3 hzeveryday.py
+```
+
+### 数据流水线（pkyd.py 执行流程）
+
+```
+AKShare 盘口异动(20类) → Excel 文件 → wsqllite.py 入库(stock_records) → hzeveryday.py 汇总(hzeveryday)
+                                                                       ↓
+                                                                 K线页+AI分析使用
 ```
 
 数据处理规则：

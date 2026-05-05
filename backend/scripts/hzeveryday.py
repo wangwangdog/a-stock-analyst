@@ -1,9 +1,39 @@
+#!/usr/bin/env python3
+"""
+从 stock_records 表汇总大单数据到 hzeveryday 表，并清理已处理记录。
+"""
+
+import sys
 import sqlite3
-import os
 from pathlib import Path
+from datetime import date
+
+
+def _is_trading_day() -> bool:
+    """通过 baostock 判断今天是不是交易日，非交易日直接退出。"""
+    try:
+        import baostock as bs
+        today = date.today().strftime("%Y-%m-%d")
+        lg = bs.login()
+        if lg.error_code != "0":
+            print(f"⚠ baostock 登录失败，默认按交易日处理: {lg.error_msg}")
+            return True
+        try:
+            rs = bs.query_trade_dates(start_date=today, end_date=today)
+            while rs.next():
+                row = rs.get_row_data()
+                if row[0] == today:
+                    return row[1] == "1"
+            return False
+        finally:
+            bs.logout()
+    except ImportError:
+        print("⚠ baostock 未安装，跳过交易日判断")
+        return True
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DB_PATH = str(SCRIPT_DIR.parent.parent / "backend" / "data" / "stock_cache.db")  # 统一使用 stock_cache.db
+DB_PATH = str(SCRIPT_DIR.parent.parent / "backend" / "data" / "stock_cache.db")
 
 
 def migrate_and_cleanup():
@@ -11,14 +41,12 @@ def migrate_and_cleanup():
     从 stock_records 表按日期和股票代码汇总数据到 hzeveryday 表，
     并删除已处理的原始记录。
     """
-    db_path = DB_PATH
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     try:
         cursor.execute("BEGIN TRANSACTION;")
 
-        # 1. 创建目标表 hzeveryday（如果不存在）
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS hzeveryday (
             股票代码 TEXT,
@@ -30,7 +58,6 @@ def migrate_and_cleanup():
         )
         """)
 
-        # 2. 查询所有需要汇总的 (买入日期, 股票代码) 组合
         cursor.execute("SELECT DISTINCT 买入日期, 股票代码 FROM stock_records;")
         groups = cursor.fetchall()
 
@@ -41,13 +68,10 @@ def migrate_and_cleanup():
 
         print(f"找到 {len(groups)} 个待处理的日期+股票代码组合。")
 
-        # 3. 逐组处理：汇总 -> 插入 -> 删除
         for buy_date, stock_code in groups:
-            # 补齐股票代码到6位
             raw_code = stock_code.strip()
             padded_code = raw_code.zfill(6)
-            
-            # 剔除9开头的股票
+
             if padded_code.startswith('9'):
                 print(f"跳过9开头股票：日期 {buy_date}，代码 {padded_code}")
                 cursor.execute("""
@@ -67,7 +91,6 @@ def migrate_and_cleanup():
             """, (buy_date, stock_code))
             row = cursor.fetchone()
             if row is None or row[0] is None:
-                print(f"警告：日期 {buy_date} 代码 {padded_code} 无有效数据，跳过")
                 continue
 
             sum_shou, sum_amount, big_count, stock_name = row
@@ -97,4 +120,8 @@ def migrate_and_cleanup():
 
 
 if __name__ == "__main__":
+    # ── 交易日判断 ──
+    if not _is_trading_day():
+        print(f"📅 {date.today()} 非交易日，跳过 hzeveryday 汇总")
+        sys.exit(0)
     migrate_and_cleanup()

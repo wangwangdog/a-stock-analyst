@@ -1,14 +1,45 @@
+#!/usr/bin/env python3
+"""
+将 Excel 中的盘口异动数据写入 stock_records 表。
+"""
 import os
 import re
+import sys
 import sqlite3
 import pandas as pd
 from pathlib import Path
+from datetime import date
+
+# ── 交易日判断（被 pkyd.py 或定时任务调度时生效）──
+def _is_trading_day() -> bool:
+    try:
+        import baostock as bs
+        today = date.today().strftime("%Y-%m-%d")
+        lg = bs.login()
+        if lg.error_code != "0":
+            print(f"⚠ baostock 登录失败，默认按交易日处理: {lg.error_msg}")
+            return True
+        try:
+            rs = bs.query_trade_dates(start_date=today, end_date=today)
+            while rs.next():
+                row = rs.get_row_data()
+                if row[0] == today:
+                    return row[1] == "1"
+            return False
+        finally:
+            bs.logout()
+    except ImportError:
+        print("⚠ baostock 未安装，跳过交易日判断")
+        return True
+
+if not _is_trading_day():
+    print(f"📅 {date.today()} 非交易日，跳过 wsqllite 入库")
+    sys.exit(0)
 
 # ==================== 配置 ====================
 SCRIPT_DIR = Path(__file__).resolve().parent
 EXCEL_DIR = str(SCRIPT_DIR / "excel_files")  # Excel 文件目录
 DB_PATH = str(SCRIPT_DIR.parent.parent / "backend" / "data" / "stock_cache.db")  # SQLite 数据库文件
-# 实际解析为: /Users/gougou/.openclaw/workspace/a-stock-analyst/backend/data/stock_cache.db
 TABLE_NAME = "stock_records"
 
 # 文件名中日期提取的正则表达式
