@@ -8,6 +8,12 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "🦞 A-Stock Analyst 启动中..."
 echo ""
 
+# ===== 清理旧进程 =====
+echo "🧹 清理旧进程..."
+lsof -ti :8765 2>/dev/null | xargs kill -9 2>/dev/null || true
+lsof -ti :3000 2>/dev/null | xargs kill -9 2>/dev/null || true
+sleep 1
+
 # 检查 venv
 VENV_PYTHON="$DIR/backend/.venv/bin/python3"
 if [ ! -f "$VENV_PYTHON" ]; then
@@ -45,7 +51,6 @@ echo "✅ 启动完成!"
 echo "   前端: http://localhost:3000"
 echo "   后端: http://localhost:8765"
 echo "   API文档: http://localhost:8765/docs"
-echo "   新增 AI 研判: POST http://localhost:8765/api/ai/analyze"
 echo ""
 echo "按 Ctrl+C 停止所有服务"
 

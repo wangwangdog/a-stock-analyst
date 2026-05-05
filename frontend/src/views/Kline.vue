@@ -87,9 +87,9 @@
         <div class="sub-chart-canvas" ref="macdChartRef" id="macd-chart"></div>
       </div>
 
-      <!-- 大单买入量 子图（仅日线显示） -->
+      <!-- 大单买入总额 子图（仅日线显示） -->
       <div class="sub-chart-item" v-show="showBigBuy">
-        <div class="sub-chart-label">大单买入</div>
+        <div class="sub-chart-label">大单买入总额</div>
         <div class="sub-chart-canvas" ref="bigbuyChartRef" id="bigbuy-chart"></div>
       </div>
       <!-- 大单比例 子图（仅日线显示） -->
@@ -624,7 +624,7 @@ function renderMainChart(lw, times) {
 
   mainChart = createChart(chartRef.value, {
     layout: {
-      background: { type: ColorType.Solid, color: '#FFFDE7' },
+      background: { type: ColorType.Solid, color: '#FFFEF5' },
       textColor: '#333',
     },
     grid: {
@@ -692,7 +692,7 @@ function renderMacdChart(lw, times) {
 
   macdChart = createChart(macdChartRef.value, {
     layout: {
-      background: { type: ColorType.Solid, color: '#FFFDE7' },
+      background: { type: ColorType.Solid, color: '#FFFEF5' },
       textColor: '#666',
     },
     grid: {
@@ -767,7 +767,7 @@ function renderBigbuyChart(lw, times) {
 
   bigbuyChart = createChart(bigbuyChartRef.value, {
     layout: {
-      background: { type: ColorType.Solid, color: '#FFFDE7' },
+      background: { type: ColorType.Solid, color: '#FFFEF5' },
       textColor: '#666',
     },
     grid: {
@@ -813,17 +813,27 @@ function renderBigbuyChart(lw, times) {
 
   if (bbData.length) bigbuyHistogram.setData(bbData)
 
-  // 柱顶标注大笔买数（仅在有数据的位置显示）
-  const nonZero = bbData.filter(d => d.value > 0)
-  if (nonZero.length && typeof bigbuyHistogram.setMarkers === 'function') {
-    const markers = nonZero.map((d, i) => ({
-      time: d.time,
-      position: 'aboveBar',
-      color: '#1890ff',
-      shape: 'arrowUp',
-      text: String(bbMap[klineData.value[bbData.indexOf(d)].date.slice(0, 10)]?.count || ''),
-    }))
-    bigbuyHistogram.setMarkers(markers)
+  // 柱顶标注大笔买数
+  try {
+    const markers = []
+    klineData.value.forEach((kd, i) => {
+      const date = kd.date.slice(0, 10)
+      const match = bbMap[date]
+      if (match && match.count > 0) {
+        markers.push({
+          time: times[i],
+          position: 'aboveBar',
+          color: '#e74c3c',
+          shape: 'arrowUp',
+          text: String(match.count),
+        })
+      }
+    })
+    if (markers.length && typeof bigbuyHistogram.setMarkers === 'function') {
+      bigbuyHistogram.setMarkers(markers)
+    }
+  } catch (e) {
+    console.warn('标记失败:', e)
   }
 }
 
@@ -835,7 +845,7 @@ function renderRatioChart(lw, times) {
   // 完全复制大单买入的图表配置
   ratioChart = createChart(ratioChartRef.value, {
     layout: {
-      background: { type: ColorType.Solid, color: '#FFFDE7' },
+      background: { type: ColorType.Solid, color: '#FFFEF5' },
       textColor: '#666',
     },
     grid: {
