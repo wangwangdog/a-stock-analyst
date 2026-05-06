@@ -71,50 +71,50 @@
           >🔥 满足3+策略条件</van-button>
         </div>
         <div class="multi-strat-actions">
-          <van-button
-            icon="search"
-            size="small"
-            plain
-            type="warning"
-            :loading="loadingChushai"
-            @click="doChushai"
-            style="margin: 4px"
-          >🔍 初筛</van-button>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center">
+            <span style="font-size:13px;color:#666">起始排名:</span>
+            <van-field
+              v-model="chushaiRankStart"
+              type="number"
+              placeholder="1"
+              style="width:70px"
+              input-align="center"
+              :border="true"
+              size="small"
+            />
+            <van-button
+              icon="search"
+              size="small"
+              plain
+              type="warning"
+              :loading="loadingChushai"
+              @click="doChushai"
+            >🔍 初筛</van-button>
+          </div>
         </div>
 
-        <!-- 初筛结果展示 -->
+        <!-- 初筛结果展示（网格 5列） -->
         <div class="picks-section" v-if="chushaiResults.length">
-          <van-cell-group :title="`🔍 初筛 — 20日涨幅排名第101-500 (共${chushaiTotal}只)`">
-            <template #title>
-              <span>🔍 初筛 — 20日涨幅排名 (第101-500位)</span>
-              <span style="font-size:12px;color:#999;margin-left:8px">共 {{ chushaiTotal }} 只</span>
-            </template>
-            <van-cell
+          <div style="padding:8px 12px;font-size:13px;color:#666;border-bottom:1px solid #eee">
+            🔍 初筛 — 20日涨幅排名第{{ chushaiRankStart }}-{{ chushaiRankEnd }} (共{{ chushaiTotal }}只)
+          </div>
+          <van-grid :column-num="5" :border="true" :gutter="4" style="padding:4px">
+            <van-grid-item
               v-for="item in chushaiResults"
               :key="item.symbol"
-              is-link
+              :text="item.name || item.symbol"
               @click="$router.push('/kline/' + item.symbol)"
+              style="min-height:60px"
             >
-              <template #title>
-                <van-tag plain>{{ item.symbol }}</van-tag>
-                <van-tag
-                  :type="item.return_20d >= 0 ? 'danger' : 'success'"
-                  style="margin-left:6px"
-                >#{{ item.rank }}</van-tag>
-              </template>
-              <template #label>
-                <span style="color:#999;font-size:11px">
-                  最新 {{ item.latest_close?.toFixed(2) }} ({{ item.latest_date }})
-                  20日前 {{ item.close_20d?.toFixed(2) }} ({{ item.date_20d }})
-                </span>
-              </template>
-              <template #value>
-                <span :style="{color: item.return_20d >= 0 ? '#ee0a24' : '#07c160', fontWeight: 700}">
+              <div class="chushai-card">
+                <div class="cs-code">{{ item.symbol }}</div>
+                <div class="cs-name">{{ item.name || item.symbol }}</div>
+                <div class="cs-ret" :style="{color: item.return_20d >= 0 ? '#ee0a24' : '#07c160'}">
                   {{ item.return_20d >= 0 ? '+' : '' }}{{ item.return_20d?.toFixed(2) }}%
-                </span>
-              </template>
-            </van-cell>
-          </van-cell-group>
+                </div>
+              </div>
+            </van-grid-item>
+          </van-grid>
         </div>
 
         <!-- 多策略结果展示 -->
@@ -268,7 +268,9 @@ const history = ref([])
 const selectedKey = ref(null)
 const syncing = ref(false)
 
-// ===== 初筛（20日涨幅排名101-500）=====
+// ===== 初筛（20日涨幅，起始排名可配置）=====
+const chushaiRankStart = ref(1)
+const chushaiRankEnd = ref(200)
 const chushaiResults = ref([])
 const chushaiTotal = ref(0)
 const loadingChushai = ref(false)
@@ -278,16 +280,20 @@ async function doChushai() {
   multiMode.value = false
   selectedKey.value = null
   chushaiResults.value = []
+  const start = parseInt(chushaiRankStart.value) || 1
+  const count = 200
+  const end = start + count - 1
+  chushaiRankEnd.value = end
   try {
     // 先刷新数据
     await fetch('/api/v1/strategy/vol20day/refresh', { method: 'POST' })
-    // 拉取 101-500
-    const r = await fetch('/api/v1/strategy/vol20day?min_rank=101&max_rank=500')
+    // 拉取 N ~ N+199
+    const r = await fetch(`/api/v1/strategy/vol20day?min_rank=${start}&max_rank=${end}`)
     const data = await r.json()
     if (data.status === 'ok') {
       chushaiResults.value = data.data || []
       chushaiTotal.value = data.total || 0
-      showToast(`共 ${data.total} 只，已加载排名101-500 (${data.returned}只)`)
+      showToast(`共 ${data.total} 只，已加载排名${start}-${end}`)
     } else {
       showToast({ message: '初筛失败', type: 'fail' })
     }
@@ -401,21 +407,52 @@ function selectStrategy(key) {
 
 async function doSync() {
   syncing.value = true
-  const toast = showLoadingToast({ message: '🔄 同步数据 + 执行策略...', duration: 0 })
+  const toast = showLoadingToast({ message: '🔄 同步已启动...', duration: 0 })
   try {
     const r = await fetch('/api/v1/strategy/sync', { method: 'POST' })
     const data = await r.json()
-    closeToast()
-    if (data.status === 'ok') {
+
+    if (data.status === 'started') {
+      // 轮询同步状态
+      const poll = setInterval(async () => {
+        try {
+          const sr = await fetch('/api/v1/strategy/sync/status')
+          const sd = await sr.json()
+          if (!sd.in_progress && sd.result) {
+            clearInterval(poll)
+            closeToast()
+            if (sd.result.status === 'ok') {
+              const msg = `✅ 写入 ${sd.result.sync_count} 条数据\n已选 ${sd.result.total_picks} 只股票`
+              showDialog({ title: '同步完成', message: msg })
+            } else {
+              showToast({ message: `同步失败: ${sd.result.error}`, type: 'fail' })
+            }
+            syncing.value = false
+            loadAll()
+          }
+        } catch {
+          clearInterval(poll)
+          closeToast()
+          showToast({ message: '同步超时', type: 'fail' })
+          syncing.value = false
+          loadAll()
+        }
+      }, 3000)
+    } else if (data.status === 'ok') {
+      closeToast()
       const msg = `✅ 写入 ${data.sync_count} 条数据\n已选 ${data.total_picks} 只股票`
       showDialog({ title: '同步完成', message: msg })
+      syncing.value = false
+      loadAll()
     } else {
+      closeToast()
       showToast({ message: `同步失败: ${data.error}`, type: 'fail' })
+      syncing.value = false
+      loadAll()
     }
   } catch {
     closeToast()
     showToast({ message: '请求失败', type: 'fail' })
-  } finally {
     syncing.value = false
     loadAll()
   }
@@ -502,4 +539,29 @@ onMounted(() => loadAll())
 .empty-hint { margin-top: 16px; }
 .history-section { margin-top: 8px; margin-bottom: 16px; }
 .result-area { margin-bottom: 16px; }
+
+.chushai-card {
+  text-align: center;
+  padding: 4px 2px;
+  width: 100%;
+}
+.cs-code {
+  font-size: 10px;
+  color: #999;
+  line-height: 1.2;
+}
+.cs-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs-ret {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
 </style>

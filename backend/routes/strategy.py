@@ -2,6 +2,8 @@
 API 路由 - 量化选股（Sequoia-X 策略）
 """
 import logging
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
@@ -16,6 +18,11 @@ from data.sequoia_engine import (
 
 logger = logging.getLogger('strategy_route')
 router = APIRouter(prefix="/api/v1/strategy", tags=["量化选股"])
+
+# 全局同步锁 + 状态跟踪
+_sync_in_progress = False
+_sync_result = None
+_sync_executor = ThreadPoolExecutor(max_workers=1)
 
 
 class SyncResponse(BaseModel):
@@ -45,12 +52,43 @@ async def strategy_list():
     }
 
 
+@router.get("/sync/status")
+async def get_sync_status():
+    """获取同步状态"""
+    global _sync_in_progress, _sync_result
+    return {
+        "in_progress": _sync_in_progress,
+        "result": _sync_result,
+    }
+
+
 @router.post("/sync")
 async def trigger_sync():
-    """触发每日同步（拉数据 + 跑策略 + 写选股结果）"""
-    logger.info("🎯 Sequoia-X 日常同步启动")
-    result = daily_sync()
-    return result
+    """触发每日同步（后台异步，不阻塞事件循环）"""
+    global _sync_in_progress, _sync_result
+    if _sync_in_progress:
+        return {"status": "in_progress", "message": "同步正在进行中..."}
+
+    _sync_in_progress = True
+    _sync_result = None
+    logger.info("🎯 Sequoia-X 日常同步启动（后台线程）")
+
+    def _run_sync():
+        global _sync_in_progress, _sync_result
+        try:
+            result = daily_sync()
+            _sync_result = result
+            logger.info(f"✅ Sequoia-X 同步完成: {result.get('sync_count',0)}条, {result.get('total_picks',0)}只")
+        except Exception as e:
+            _sync_result = {"status": "error", "error": str(e)}
+            logger.error(f"❌ Sequoia-X 同步失败: {e}")
+        finally:
+            _sync_in_progress = False
+
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(_sync_executor, _run_sync)
+
+    return {"status": "started", "message": "同步已启动，后台执行中..."}
 
 
 @router.get("/picks")
@@ -100,9 +138,24 @@ async def stock_strategy_signals(symbol: str):
 
 @router.post("/vol20day/refresh")
 async def refresh_vol20day_endpoint():
-    """刷新 vol20day 表（计算20日涨幅排名）"""
-    result = refresh_vol20day()
-    return result
+    """刷新 vol20day 表（后台异步，不阻塞事件循环）"""
+    global _sync_in_progress
+    if _sync_in_progress:
+        return {"status": "in_progress", "message": "数据同步正在进行中，请稍后再试"}
+
+    logger.info("📊 vol20day 刷新启动（后台线程）")
+
+    def _run_refresh():
+        try:
+            result = refresh_vol20day()
+            logger.info(f"✅ vol20day 刷新完成: {result}")
+        except Exception as e:
+            logger.error(f"❌ vol20day 刷新失败: {e}")
+
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(_sync_executor, _run_refresh)
+
+    return {"status": "started", "message": "vol20day 刷新已启动，后台执行中..."}
 
 
 @router.get("/vol20day")
