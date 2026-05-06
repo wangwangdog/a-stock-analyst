@@ -112,6 +112,8 @@
                 <div class="cs-ret" :style="{color: item.return_20d >= 0 ? '#ee0a24' : '#07c160'}">
                   {{ item.return_20d >= 0 ? '+' : '' }}{{ item.return_20d?.toFixed(2) }}%
                 </div>
+                <div class="cs-price">20日前: {{ (+item.close_20d).toFixed(2) || '--' }}</div>
+                <div class="cs-price">最新: {{ (+item.latest_close).toFixed(2) || '--' }}</div>
               </div>
             </van-grid-item>
           </van-grid>
@@ -563,5 +565,10 @@ onMounted(() => loadAll())
   font-size: 13px;
   font-weight: 700;
   line-height: 1.4;
+}
+.cs-price {
+  font-size: 9px;
+  color: #666;
+  line-height: 1.3;
 }
 </style>
