@@ -80,15 +80,102 @@
     <!-- 股票代码+名称 -->
     <div class="stock-info-line">{{ symbol }}  {{ stockName || '' }}</div>
 
-    <!-- 基本面信息（内联） -->
+    <!-- 基本面信息（内联 - Tushare 分析） -->
     <div class="fund-section" v-if="showFundamentals">
-      <div v-if="fundLoading" class="fund-loading">加载中...</div>
-      <div v-else-if="fundError" class="fund-error">{{ fundError }}</div>
-      <div v-else class="fund-content">
-        <div v-for="(v, k) in fundData" :key="k" class="fund-row">
-          <span class="fund-label">{{ k }}:</span>
-          <span class="fund-value">{{ v }}</span>
+      <div v-if="fundLoading" class="fund-loading">🔍 正在加载 tushare 数据分析...</div>
+      <div v-else-if="fundError" class="fund-error">❌ {{ fundError }}</div>
+      <div v-else class="fund-content-detailed">
+        
+        <!-- 公司信息 -->
+        <div v-if="tushareCompany" class="fund-block">
+          <div class="fund-block-title">🏢 公司概况</div>
+          <div class="company-grid">
+            <div class="company-item" v-if="tushareCompany.name">
+              <span class="comp-label">名称</span>
+              <span class="comp-val">{{ tushareCompany.name }}</span>
+            </div>
+            <div class="company-item" v-if="tushareCompany.industry">
+              <span class="comp-label">行业</span>
+              <span class="comp-val">{{ tushareCompany.industry }}</span>
+            </div>
+            <div class="company-item" v-if="tushareCompany.area">
+              <span class="comp-label">地区</span>
+              <span class="comp-val">{{ tushareCompany.area }}</span>
+            </div>
+            <div class="company-item" v-if="tushareCompany.list_date">
+              <span class="comp-label">上市日期</span>
+              <span class="comp-val">{{ tushareCompany.list_date }}</span>
+            </div>
+            <div class="company-item" v-if="tushareCompany.market">
+              <span class="comp-label">板块</span>
+              <span class="comp-val">{{ tushareCompany.market }}</span>
+            </div>
+            <div class="company-item company-desc" v-if="tushareCompany.main_business" :title="tushareCompany.main_business">
+              <span class="comp-label">主营业务</span>
+              <span class="comp-val">{{ tushareCompany.main_business }}</span>
+            </div>
+          </div>
         </div>
+
+        <!-- 行情趋势分析 -->
+        <div v-if="tusharePrice" class="fund-block">
+          <div class="fund-block-title">📈 近期趋势分析（近20日）</div>
+          <div class="pa-summary">
+            <div class="pa-stat">
+              <span class="pa-label">最新收盘</span>
+              <span class="pa-val">{{ tusharePrice.close?.toFixed(2) }}</span>
+            </div>
+            <div class="pa-stat">
+              <span class="pa-label">20日涨幅</span>
+              <span class="pa-val" :style="{color: tusharePrice.period_return_20d >= 0 ? '#ee0a24' : '#07c160'}">{{ tusharePrice.period_return_20d >= 0 ? '+' : '' }}{{ tusharePrice.period_return_20d }}%</span>
+            </div>
+            <div class="pa-stat">
+              <span class="pa-label">趋势判断</span>
+              <span class="pa-val" style="font-size:12px">{{ tusharePrice.trend }}</span>
+            </div>
+            <div class="pa-stat">
+              <span class="pa-label">20日波动率</span>
+              <span class="pa-val">{{ tusharePrice.volatility_20d }}%</span>
+            </div>
+            <div class="pa-stat">
+              <span class="pa-label">20日最高</span>
+              <span class="pa-val">{{ tusharePrice.high_20d }}</span>
+            </div>
+            <div class="pa-stat">
+              <span class="pa-label">20日最低</span>
+              <span class="pa-val">{{ tusharePrice.low_20d }}</span>
+            </div>
+            <div class="pa-stat">
+              <span class="pa-label">量比(最新/均值)</span>
+              <span class="pa-val" :style="{color: tusharePrice.volume_ratio > 1.5 ? '#ee0a24' : '#333'}">{{ tusharePrice.volume_ratio }}x</span>
+            </div>
+            <div class="pa-stat" v-if="tusharePrice.ma5">
+              <span class="pa-label">MA5 / MA10 / MA20</span>
+              <span class="pa-val" style="font-size:12px">{{ tusharePrice.ma5 }} / {{ tusharePrice.ma10 }} / {{ tusharePrice.ma20 }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 财报说明 -->
+        <div class="fund-block">
+          <div class="fund-block-title">📊 财报数据</div>
+          <div class="upgrade-tip">
+            <van-icon name="info-o" style="margin-right:6px" />
+            当前 Tushare Token 积分不足，无法获取财报、资金流数据。<br>
+            如需查看完整财报和资金流向分析，请升级 Tushare Pro 积分：
+            <a href="https://tushare.pro" target="_blank" style="color:#1989fa">tushare.pro</a>
+          </div>
+        </div>
+
+        <!-- 资金流说明 -->
+        <div class="fund-block">
+          <div class="fund-block-title">💰 资金流向</div>
+          <div class="upgrade-tip">
+            <van-icon name="info-o" style="margin-right:6px" />
+            资金流向数据需要更高 Tushare 积分权限。
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -122,7 +209,7 @@
       <template v-else>
         <van-button icon="star-o" size="small" plain @click="addFavorite">加自选</van-button>
       </template>
-      <van-button icon="gem-o" size="small" plain @click="checkStrategySignals">策略</van-button>
+      <van-button icon="gem-o" size="small" plain :disabled="!hasStrategyPicks" :style="strategyBtnStyle" @click="checkStrategySignals">策略</van-button>
     </div>
 
     <!-- AI 分析结果区域 -->
@@ -193,34 +280,80 @@ function switchStock(symbol) {
   window.location.hash = '#/kline/' + symbol
 }
 
-// 基本面内联显示
+// 基本面内联显示（Tushare 分析）
 const showFundamentals = ref(false)
 const fundLoading = ref(false)
 const fundData = ref({})
 const fundError = ref('')
+const tushareCompany = ref(null)
+const tusharePrice = ref(null)
 
 async function toggleFundamentals() {
   showFundamentals.value = !showFundamentals.value
   if (!showFundamentals.value) return
-  if (Object.keys(fundData.value).length > 0) return  // 已有数据不重复加载
+  // 已有数据不重复加载
+  if (tushareCompany.value || tusharePrice.value || Object.keys(fundData.value).length > 0) return
   
   fundLoading.value = true
   fundError.value = ''
   try {
-    const resp = await fetch('/api/v1/fundamentals/' + (route.params.symbol || props.symbol))
-    const data = await resp.json()
-    if (data && data.data) {
-      fundData.value = data.data
-    } else if (data && data.message) {
-      fundData.value = { '信息': data.message }
+    const sym = route.params.symbol || props.symbol
+    const resp = await fetch('/api/v1/tushare-fundamentals/' + sym)
+    const result = await resp.json()
+    if (result && result.status === 'ok' && result.data) {
+      const d = result.data
+      if (d.company_info && !d.company_info.error) {
+        tushareCompany.value = d.company_info
+      }
+      if (d.price_analysis && !d.price_analysis.error) {
+        tusharePrice.value = d.price_analysis
+      }
+      if (!tushareCompany.value && !tusharePrice.value) {
+        fundError.value = '暂无 tushare 数据'
+      }
     } else {
-      fundData.value = data
+      fundError.value = result?.message || '获取 tushare 数据失败'
     }
   } catch (e) {
-    fundError.value = '获取基本面失败'
+    fundError.value = '获取 tushare 数据失败: ' + (e.message || '')
   } finally {
     fundLoading.value = false
   }
+}
+
+// 格式化辅助函数
+function formatEndDate(d) {
+  if (!d) return '-'
+  const s = String(d)
+  return s.slice(0, 4) + '-' + s.slice(4, 6)
+}
+
+function formatMoneyCompact(val) {
+  if (val == null || isNaN(val)) return '-'
+  const abs = Math.abs(val)
+  if (abs >= 1e12) return (val / 1e12).toFixed(2) + '万亿'
+  if (abs >= 1e8) return (val / 1e8).toFixed(2) + '亿'
+  if (abs >= 1e4) return (val / 1e4).toFixed(2) + '万'
+  return val.toFixed(2)
+}
+
+function moneyCls(val) {
+  if (val == null) return ''
+  return val >= 0 ? 'num-pos' : 'num-neg'
+}
+
+function fmtPct(val) {
+  if (val == null || isNaN(val)) return '-'
+  return (val * 100).toFixed(2) + '%'
+}
+
+function trendCls(val, threshold, invert) {
+  if (val == null) return ''
+  const pct = val * 100
+  if (invert) {
+    return pct <= threshold ? 'num-pos' : 'num-neg'
+  }
+  return pct >= threshold ? 'num-pos' : 'num-neg'
 }
 
 const indicators = ref([
@@ -249,6 +382,8 @@ const cachedDeepResult = ref(null)
 const RED = 'border-color:#ff9999;color:#cc3333;background:#ffebeb'
 const quickBtnStyle = computed(() => hasQuickCache.value ? RED : '')
 const deepBtnStyle = computed(() => hasDeepCache.value ? RED : '')
+const hasStrategyPicks = ref(false)
+const strategyBtnStyle = computed(() => hasStrategyPicks.value ? 'color:#ee0a24;border-color:#ee0a24;background:#ffebeb' : '')
 
 async function checkAnalysisCache() {
   const sym = (route.params.symbol || props.symbol)
@@ -552,6 +687,19 @@ const changeColor = computed(() => {
   return priceData.value.pct >= 0 ? '#ee0a24' : '#07c160'
 })
 
+// 检查个股是否在策略数据库中
+async function checkStrategyPick() {
+  const sym = route.params.symbol || props.symbol
+  if (!sym) return
+  try {
+    const r = await fetch('/api/v1/strategy/check/' + sym)
+    const data = await r.json()
+    hasStrategyPicks.value = data.has_picks === true
+  } catch {
+    hasStrategyPicks.value = false
+  }
+}
+
 // Sequoia-X 策略信号查询
 async function checkStrategySignals() {
   const sym = route.params.symbol || props.symbol
@@ -598,6 +746,7 @@ watch(() => route.params.symbol, (newSym) => {
     aiResult.value = { title: '', text: '' }
     loadData()
     checkAnalysisCache()
+    checkStrategyPick()
   }
 })
 
@@ -606,6 +755,7 @@ onMounted(() => {
   loadFavorites()
   loadBigBuyRank()
   checkAnalysisCache()
+  checkStrategyPick()
 })
 
 async function loadData() {
@@ -1604,5 +1754,95 @@ function showMenu() {
   font-size: 16px;
   margin-bottom: 8px;
   color: #1565c0;
+}
+
+/* ====== Tushare 基本面详细样式 ====== */
+.fund-content-detailed {
+  padding: 4px 0;
+}
+.fund-block {
+  margin-bottom: 10px;
+}
+.fund-block-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  background: #f8f9fa;
+  border-left: 3px solid #667eea;
+  border-radius: 0 4px 4px 0;
+}
+.fund-block-empty {
+  text-align: center;
+  color: #999;
+  padding: 12px;
+  font-size: 13px;
+}
+.num-pos { color: #ee0a24; }
+.num-neg { color: #07c160; }
+
+/* 公司信息网格 */
+.company-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+.company-item {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+.comp-label {
+  display: block;
+  font-size: 10px;
+  color: #999;
+}
+.comp-val {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.company-desc {
+  grid-column: 1 / -1;
+}
+
+/* 行情趋势分析 */
+.pa-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.pa-stat {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 5px 6px;
+  text-align: center;
+}
+.pa-label {
+  display: block;
+  font-size: 10px;
+  color: #999;
+}
+.pa-val {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+}
+
+/* 升级提示 */
+.upgrade-tip {
+  padding: 10px;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #ad8b00;
+  line-height: 1.6;
 }
 </style>

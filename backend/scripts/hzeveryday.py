@@ -68,6 +68,13 @@ def migrate_and_cleanup():
 
         print(f"找到 {len(groups)} 个待处理的日期+股票代码组合。")
 
+        # 先清除当天的旧数据，避免定时任务重复执行导致重复
+        today_str = date.today().strftime("%Y-%m-%d")
+        cursor.execute("DELETE FROM hzeveryday WHERE 买入日期=?", (today_str,))
+        deleted = cursor.rowcount
+        if deleted > 0:
+            print(f"🧹 已清除当日旧数据: {deleted} 行\n")
+
         for buy_date, stock_code in groups:
             raw_code = stock_code.strip()
             padded_code = raw_code.zfill(6)

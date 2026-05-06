@@ -3,9 +3,9 @@
     <router-view />
     <van-tabbar v-model="active" route active-color="#1989fa" :border="true" safe-area-inset-bottom>
       <van-tabbar-item icon="search" to="/">搜索</van-tabbar-item>
-      <van-tabbar-item icon="chart-trending-o" to="/kline/000001">K线</van-tabbar-item>
-      <van-tabbar-item icon="info-o" to="/fund/000001">基本面</van-tabbar-item>
-      <van-tabbar-item icon="filter-o" to="/screener">筛选</van-tabbar-item>
+      <van-tabbar-item icon="gem-o" to="/strategies">策略</van-tabbar-item>
+      <van-tabbar-item icon="link-o" to="/links">链接</van-tabbar-item>
+      <van-tabbar-item icon="contact" to="/settings">我的</van-tabbar-item>
     </van-tabbar>
   </van-config-provider>
 </template>
@@ -17,7 +17,7 @@ import { useRoute } from 'vue-router'
 const theme = ref('light')
 const route = useRoute()
 
-const tabMap = { '/': 0, '/kline/000001': 1, '/fund/000001': 2, '/screener': 3 }
+const tabMap = { '/': 0, '/strategies': 1, '/links': 2, '/settings': 3 }
 const active = ref(tabMap[route.path] || 0)
 </script>
 

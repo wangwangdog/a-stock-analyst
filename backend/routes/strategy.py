@@ -8,6 +8,9 @@ from pydantic import BaseModel
 from data.sequoia_engine import (
     check_status, daily_sync, get_todays_picks,
     get_picks_history, get_strategy_signals,
+    get_multi_strategy_picks,
+    refresh_vol20day, query_vol20day, get_vol20day_total,
+    stock_has_strategy_picks,
     STRATEGY_META,
 )
 
@@ -75,6 +78,15 @@ async def get_picks(
     }
 
 
+@router.get("/check/{symbol}")
+async def stock_strategy_check(symbol: str):
+    """检查个股是否在策略数据库中（任意日期有记录即可）"""
+    return {
+        "symbol": symbol,
+        "has_picks": stock_has_strategy_picks(symbol),
+    }
+
+
 @router.get("/signals/{symbol}")
 async def stock_strategy_signals(symbol: str):
     """个股当日被哪些策略选中"""
@@ -83,6 +95,50 @@ async def stock_strategy_signals(symbol: str):
         "symbol": symbol,
         "signals": text,
         "has_signals": bool(text),
+    }
+
+
+@router.post("/vol20day/refresh")
+async def refresh_vol20day_endpoint():
+    """刷新 vol20day 表（计算20日涨幅排名）"""
+    result = refresh_vol20day()
+    return result
+
+
+@router.get("/vol20day")
+async def get_vol20day(
+    min_rank: int = Query(1, ge=1, description="起始排名"),
+    max_rank: int = Query(100, ge=1, description="截止排名"),
+):
+    """查询 vol20day 表中指定排名的股票"""
+    data = query_vol20day(min_rank=min_rank, max_rank=max_rank)
+    total = get_vol20day_total()
+    return {
+        "status": "ok",
+        "total": total,
+        "min_rank": min_rank,
+        "max_rank": max_rank,
+        "returned": len(data),
+        "data": data,
+    }
+
+
+@router.get("/multi-picks")
+async def multi_strategy_picks(
+    min_count: int = Query(2, ge=1, le=6, description="最少满足策略数"),
+    max_count: int = Query(None, ge=1, le=6, description="最多满足策略数"),
+    days: int = Query(1, ge=1, le=30, description="回溯天数"),
+):
+    """获取同时被多个策略选中的股票"""
+    results = get_multi_strategy_picks(
+        min_count=min_count, max_count=max_count, days=days
+    )
+    return {
+        "status": "ok",
+        "total": len(results),
+        "min_count": min_count,
+        "max_count": max_count if max_count else "unlimited",
+        "data": results,
     }
 
 

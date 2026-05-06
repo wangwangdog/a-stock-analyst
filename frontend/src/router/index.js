@@ -5,6 +5,8 @@ import Kline from '../views/Kline.vue'
 import Fundamentals from '../views/Fundamentals.vue'
 import Screener from '../views/Screener.vue'
 import Strategies from '../views/Strategies.vue'
+import Links from '../views/Links.vue'
+import Settings from '../views/Settings.vue'
 
 const routes = [
   { path: '/login', name: 'Login', component: Login },
@@ -13,6 +15,8 @@ const routes = [
   { path: '/fund/:symbol', name: 'Fund', component: Fundamentals, props: true, meta: { requiresAuth: true } },
   { path: '/screener', name: 'Screener', component: Screener, meta: { requiresAuth: true } },
   { path: '/strategies', name: 'Strategies', component: Strategies, meta: { requiresAuth: true } },
+  { path: '/links', name: 'Links', component: Links, meta: { requiresAuth: true } },
+  { path: '/settings', name: 'Settings', component: Settings, meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({

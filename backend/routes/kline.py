@@ -9,6 +9,7 @@ from data.validator import fetch_kline_cross_checked, check_data_health
 from data import akshare_fetcher
 from analysis.indicators import calc_all_indicators
 from analysis.fundamentals import get_fundamental_summary
+from analysis.tushare_analysis import get_tushare_analysis
 
 router = APIRouter(prefix="/api/v1", tags=["K线数据"])
 
@@ -244,6 +245,13 @@ async def get_fundamentals(symbol: str):
 
 
 @router.get("/health")
+@router.get("/tushare-fundamentals/{symbol}")
+async def get_tushare_fundamentals(symbol: str):
+    """获取 tushare 财报 & 资金流分析"""
+    result = get_tushare_analysis(symbol)
+    return {"status": "ok", "data": result}
+
+
 async def get_health():
     """数据源健康检查"""
     health = check_data_health()

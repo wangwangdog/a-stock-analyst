@@ -245,6 +245,21 @@ def get_picks_history(days: int = 30, strategy: str = None, symbol: str = None) 
         conn.close()
 
 
+def stock_has_strategy_picks(symbol: str) -> bool:
+    """检查个股是否在 strategy_picks 表中有记录（任意日期）"""
+    if not Path(DB_PATH).exists():
+        return False
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        r = conn.execute(
+            "SELECT 1 FROM strategy_picks WHERE symbol=? LIMIT 1",
+            (symbol,)
+        ).fetchone()
+        return r is not None
+    finally:
+        conn.close()
+
+
 def get_strategy_signals(ticker: str) -> str:
     """个股今日被哪些策略选中（供 AI Agent 使用）"""
     if not Path(DB_PATH).exists():
@@ -265,5 +280,183 @@ def get_strategy_signals(ticker: str) -> str:
         conn.close()
 
 
-# 启动时初始化
+def get_multi_strategy_picks(min_count: int = 2, max_count: int = None, days: int = 1) -> list[dict]:
+    """获取同时被多个策略选中的股票
+
+    Args:
+        min_count: 最少策略数
+        max_count: 最多策略数（None 表示不限制上限）
+        days: 回溯天数
+
+    Returns:
+        [{"symbol": "000001.SZ", "count": 3, "strategies": ["ma_volume", ...]}, ...]
+    """
+    if not Path(DB_PATH).exists():
+        return []
+
+    from datetime import timedelta
+    start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+    today = date.today().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        # 按 symbol 分组统计当日命中的策略数
+        sql = """
+            SELECT symbol, COUNT(DISTINCT strategy) as strategy_count,
+                   GROUP_CONCAT(DISTINCT strategy) as strategies
+            FROM strategy_picks
+            WHERE date=?
+            GROUP BY symbol
+            HAVING strategy_count >= ?
+        """
+        params = [today, min_count]
+
+        if max_count is not None:
+            sql += " AND strategy_count <= ?"
+            params.append(max_count)
+
+        sql += " ORDER BY strategy_count DESC, symbol"
+        rows = conn.execute(sql, params).fetchall()
+
+        name_map = dict((k, n) for k, n, _ in STRATEGY_META)
+        result = []
+        for r in rows:
+            strat_keys = r[2].split(",") if r[2] else []
+            result.append({
+                "symbol": r[0],
+                "count": r[1],
+                "strategies": strat_keys,
+                "strategy_names": [name_map.get(s, s) for s in strat_keys],
+                "date": today,
+            })
+        return result
+    finally:
+        conn.close()
+
+
+# ── vol20day 表：20日涨幅排序 ──
+
+VOL20DAY_TABLE = "vol20day"
+
+
+def _init_vol20day_table():
+    """创建 vol20day 表（存于 stock_cache.db）"""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS {VOL20DAY_TABLE} (
+                symbol TEXT PRIMARY KEY,
+                latest_date TEXT,
+                latest_close REAL,
+                date_20d TEXT,
+                close_20d REAL,
+                return_20d REAL,
+                rank_20d INTEGER,
+                updated_at TEXT DEFAULT (datetime('now','localtime'))
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def refresh_vol20day() -> dict:
+    """计算并更新 vol20day 表
+
+    筛选规则：
+    - 代码以 0 或 6 开头（stock_daily 中暂无 1 开头数据）
+    - 不含 ST（stock_daily 无 ST 标记，此处靠前缀过滤）
+    - 有完整 20 个交易日的收盘价数据
+    - 涨幅 = (最新收盘 - 20日前收盘) / 20日前收盘
+    """
+    today_str = date.today().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(f"DELETE FROM {VOL20DAY_TABLE}")
+
+        # 使用窗口函数获取每只股票的最新日期和第21行（20日前的数据）
+        # SQL 先得到每只股票按日期降序的排位
+        rows = conn.execute("""
+            WITH ranked AS (
+                SELECT symbol, date, close,
+                       ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) as rn
+                FROM stock_daily
+                WHERE SUBSTR(symbol, 1, 1) IN ('0', '6')
+            ),
+            latest AS (
+                SELECT symbol, close as latest_close, date as latest_date
+                FROM ranked WHERE rn = 1
+                AND close > 0
+            ),
+            ago20 AS (
+                SELECT symbol, close as close_20d, date as date_20d
+                FROM ranked WHERE rn = 21
+                AND close > 0
+            )
+            SELECT l.symbol, l.latest_date, l.latest_close,
+                   a.date_20d, a.close_20d,
+                   (l.latest_close - a.close_20d) / a.close_20d * 100.0 as return_20d
+            FROM latest l
+            INNER JOIN ago20 a ON l.symbol = a.symbol
+            ORDER BY return_20d DESC
+        """).fetchall()
+
+        count = 0
+        for rank_idx, row in enumerate(rows):
+            symbol, latest_date, latest_close, date_20d, close_20d, ret_20d = row
+            conn.execute(
+                f"""INSERT OR REPLACE INTO {VOL20DAY_TABLE}
+                   (symbol, latest_date, latest_close, date_20d, close_20d, return_20d, rank_20d)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (symbol, latest_date, latest_close, date_20d, close_20d, round(ret_20d, 4), rank_idx + 1)
+            )
+            count += 1
+
+        conn.commit()
+        return {"status": "ok", "total": count, "updated_at": today_str}
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}
+    finally:
+        conn.close()
+
+
+def query_vol20day(min_rank: int = 1, max_rank: int = 100) -> list[dict]:
+    """查询 vol20day 表中指定排名的股票"""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        rows = conn.execute(
+            f"""SELECT symbol, latest_date, latest_close, date_20d, close_20d,
+                      return_20d, rank_20d
+               FROM {VOL20DAY_TABLE}
+               WHERE rank_20d >= ? AND rank_20d <= ?
+               ORDER BY rank_20d""",
+            (min_rank, max_rank)
+        ).fetchall()
+        result = []
+        for r in rows:
+            result.append({
+                "symbol": r[0],
+                "latest_date": r[1],
+                "latest_close": r[2],
+                "date_20d": r[3],
+                "close_20d": r[4],
+                "return_20d": r[5],
+                "rank": r[6],
+            })
+        return result
+    finally:
+        conn.close()
+
+
+def get_vol20day_total() -> int:
+    """获取 vol20day 表中的总记录数"""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        r = conn.execute(f"SELECT COUNT(*) FROM {VOL20DAY_TABLE}").fetchone()
+        return r[0] if r else 0
+    finally:
+        conn.close()
+
+
+# 启动时初始化 tables
 _init_picks_table()
+_init_vol20day_table()
