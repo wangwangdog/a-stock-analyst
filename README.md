@@ -236,6 +236,123 @@ AKShare 盘口异动(20类) → Excel 文件 → wsqllite.py 入库(stock_record
 
 ---
 
+## 部署指南（Tailscale + systemd）
+
+### 环境要求
+
+| 依赖 | 版本 |
+|---|---|
+| Python | ≥ 3.12 |
+| Node.js | ≥ 18 |
+| Tailscale | 已安装并登录 |
+| systemd | 用户级 service 支持（`loginctl show-user $USER | grep Linger=yes`） |
+
+### 1. 安装依赖
+
+```bash
+# Python 依赖（已全局安装，无需 venv）
+pip3 install fastapi uvicorn akshare baostock loguru langgraph langchain-core langchain-openai openai chromadb dashscope pandas requests python-dotenv pytz tqdm httpx yfinance stockstats sse-starlette
+
+# 前端依赖
+cd frontend && npm install
+```
+
+### 2. 配置 API Key
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入 DEEPSEEK_API_KEY
+```
+
+### 3. 启动服务（开发调试）
+
+```bash
+bash start.sh
+```
+
+### 4. 配置开机自启（systemd 用户服务）
+
+```bash
+# 复制 service 文件到用户目录
+mkdir -p ~/.config/systemd/user/
+
+# 重新加载并启用
+systemctl --user daemon-reload
+systemctl --user enable a-stock-backend.service a-stock-frontend.service
+systemctl --user start a-stock-backend.service a-stock-frontend.service
+```
+
+查看状态：
+
+```bash
+systemctl --user status a-stock-backend.service
+systemctl --user status a-stock-frontend.service
+```
+
+### 5. Tailscale 远程访问
+
+> ⚠️ 首次配置需先执行一次 sudo 设置 operator（之后不需要）：
+> `sudo tailscale set --operator=$USER`
+
+```bash
+# 配置 Serve（内网 HTTPS，Tailscale 网络内可用）
+tailscale serve --bg --https 443 http://127.0.0.1:3000
+
+# 配置 Funnel（公网 HTTPS，互联网可访问）
+tailscale funnel --bg 3000
+```
+
+**重要：前端 Vite 配置需允许外部 Host** — 已在 `frontend/vite.config.js` 中设置 `allowedHosts: true`，否则 Tailscale 域名请求会被 Vite 拦截返回 403。
+
+**`frontend/vite.config.js` 示例：**
+
+```js
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+export default defineConfig({
+  plugins: [vue()],
+  server: {
+    port: 3000,
+    host: '0.0.0.0',
+    allowedHosts: true,  // ← 必须添加
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8765',
+        changeOrigin: true,
+      }
+    }
+  }
+})
+```
+
+### 6. 访问方式
+
+| 入口 | URL | 说明 |
+|---|---|---|
+| HTTPS（内网+公网） | `https://<machine-name>.tail<code>.ts.net` | MagicDNS + Funnel，自动 HTTPS |
+| HTTP 直连 | `http://<tailscale-ip>:3000` | Tailscale 内网 IP |
+| API 文档 | `https://<machine-name>.tail<code>.ts.net/docs` | FastAPI Swagger |
+| 后端 API | `http://<tailscale-ip>:8765` | 可直接访问后端 |
+
+### 7. 管理命令
+
+```bash
+# 查看 serve/funnel 状态
+tailscale serve status
+
+# 关闭 serve (保留内网访问)
+tailscale serve --https=443 off
+
+# 关闭 funnel (保留内网 HTTPS)
+tailscale funnel --https=443 off
+
+# 完全重置
+tailscale funnel reset
+```
+
+---
+
 ## 许可
 
 - `backend/tradingagents/` 目录代码来自 [TradingAgents-CN](https://github.com/hsliuping/TradingAgents-CN)，遵循 Apache 2.0 许可证

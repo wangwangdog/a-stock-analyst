@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A-Stock Analyst 启动脚本
+# A-Stock Analyst 启动脚本 (Linux 适配版)
 # 后端端口: 8765, 前端端口: 3000
 
 set -e
@@ -14,18 +14,15 @@ lsof -ti :8765 2>/dev/null | xargs kill -9 2>/dev/null || true
 lsof -ti :3000 2>/dev/null | xargs kill -9 2>/dev/null || true
 sleep 1
 
-# 检查 venv
-VENV_PYTHON="$DIR/backend/.venv/bin/python3"
-if [ ! -f "$VENV_PYTHON" ]; then
-    echo "📦 未检测到 venv，创建 Python 3.12 虚拟环境..."
-    cd "$DIR/backend"
-    /opt/homebrew/bin/python3.12 -m venv .venv
-    source .venv/bin/activate
-    pip install -r requirements.txt 2>/dev/null || echo "⚠️ 部分依赖需手动安装"
-    pip install fastapi uvicorn akshare baostock loguru langgraph langchain-core langchain-openai openai chromadb dashscope 2>&1 | tail -3
-else
-    echo "✅ 使用 venv Python: $VENV_PYTHON"
-fi
+PYTHON="python3"
+
+# 检查 Python 和依赖
+echo "🔍 检查 Python 环境..."
+$PYTHON -c "import fastapi, uvicorn" 2>/dev/null || {
+    echo "📦 安装 Python 依赖..."
+    pip3 install fastapi uvicorn akshare baostock loguru langgraph langchain-core langchain-openai openai chromadb dashscope pandas requests python-dotenv pytz tqdm httpx yfinance stockstats sse-starlette
+}
+echo "✅ Python 依赖正常"
 
 # 加载 .env 文件 (API Keys)
 if [ -f "$DIR/.env" ]; then
@@ -36,7 +33,7 @@ fi
 # 启动后端
 echo "[1/2] 启动后端 API..."
 cd "$DIR/backend"
-PYTHONPATH="." "$VENV_PYTHON" -m uvicorn main:app --host 0.0.0.0 --port 8765 --log-level info &
+PYTHONPATH="." $PYTHON -m uvicorn main:app --host 0.0.0.0 --port 8765 --log-level info &
 BACKEND_PID=$!
 sleep 2
 
@@ -51,6 +48,7 @@ echo "✅ 启动完成!"
 echo "   前端: http://localhost:3000"
 echo "   后端: http://localhost:8765"
 echo "   API文档: http://localhost:8765/docs"
+echo "   Tailscale: http://100.77.41.19:3000"
 echo ""
 echo "按 Ctrl+C 停止所有服务"
 
