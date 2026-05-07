@@ -1131,9 +1131,9 @@ function renderBigbuyChart(lw, times) {
   }
 }
 
-// ====== 有大买单子图（来自 big_buy_summary） ======
+// ====== 有大买单子图（参照大单买入总额实现） ======
 function renderRatioChart(lw, times) {
-  if (!ratioChartRef.value || !bigDealData.value.length || !klineData.value.length) return
+  if (!ratioChartRef.value || !bigDealData.value.length) return
   const { createChart, ColorType, HistogramSeries } = lw
 
   ratioChart = createChart(ratioChartRef.value, {
@@ -1149,7 +1149,6 @@ function renderRatioChart(lw, times) {
     rightPriceScale: {
       borderColor: '#e8e0c8',
       scaleMargins: { top: 0.1, bottom: 0.1 },
-      visible: true,
     },
     timeScale: {
       borderColor: '#e8e0c8',
@@ -1168,25 +1167,23 @@ function renderRatioChart(lw, times) {
     lastValueVisible: false,
   })
 
-  // big_deal_summary 数据按日期映射
+  // 构建完整的日期序列，与 K线时间轴对齐
   const bdMap = {}
-  bigDealData.value.forEach(d => { bdMap[d.date] = d })
+  bigDealData.value.forEach(d => { bdMap[d.date.slice(0, 10)] = d })
 
-  // 用买入数量（股数）绘制柱形图
   const chartData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
     const match = bdMap[date]
-    const qty = match ? (match.qty || 0) : 0
     return {
       time: times[i],
-      value: qty,
-      color: qty > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
+      value: match ? (match.qty || 0) : 0,
+      color: match ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
     }
   })
 
   if (chartData.length) ratioHistogram.setData(chartData)
 
-  // 柱顶标注有大买单次数
+  // 柱顶标注次数
   try {
     const markers = []
     klineData.value.forEach((d, i) => {
@@ -1205,9 +1202,7 @@ function renderRatioChart(lw, times) {
     if (markers.length && typeof ratioHistogram.setMarkers === 'function') {
       ratioHistogram.setMarkers(markers)
     }
-  } catch (e) {
-    console.warn('有大买单标记失败:', e)
-  }
+  } catch (e) {}
 }
 
 // ====== 均线渲染 ======
