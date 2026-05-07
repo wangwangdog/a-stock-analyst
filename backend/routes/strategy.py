@@ -67,10 +67,6 @@ async def get_sync_status():
 @router.post("/sync")
 async def trigger_sync():
     """触发每日同步（后台异步，不阻塞事件循环）"""
-    global _sync_in_progress, _sync_result
-    if _sync_in_progress:
-        return {"status": "in_progress", "message": "同步正在进行中..."}
-
     global _sync_in_progress, _sync_result, _sync_progress
     if _sync_in_progress:
         return {"status": "in_progress", "message": "同步正在进行中..."}
