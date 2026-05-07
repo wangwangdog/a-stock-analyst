@@ -43,7 +43,7 @@ def _bs_fetch_batch(tasks: list) -> list:
             start_date=start,
             end_date=end,
             frequency="d",
-            adjustflag="1",  # 后复权
+            adjustflag="2",  # 前复权
         )
         if rs.error_code != "0":
             continue
@@ -191,7 +191,7 @@ class DataEngine:
                     start_date=start,
                     end_date=today_str,
                     frequency="d",
-                    adjustflag="1",  # 后复权
+                    adjustflag="2",  # 前复权
                 )
 
                 if rs.error_code != "0":
