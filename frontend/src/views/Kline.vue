@@ -369,6 +369,7 @@ const stockName = ref('')
 const dataSource = ref('')
 const validationFailed = ref(0)
 const bigbuyData = ref([])
+const bigDealData = ref([])
 
 // AI 分析结果
 const aiResult = ref({ title: '', text: '', visible: false })
