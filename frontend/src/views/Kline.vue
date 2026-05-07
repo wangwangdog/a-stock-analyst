@@ -179,7 +179,7 @@
       </div>
     </div>
 
-    <!-- 子图区域：MACD, 大单买入, 有大买单 -->
+    <!-- 子图区域：MACD, 大单买入数, 有大买单 -->
     <div class="sub-charts-area">
       <!-- MACD 子图 -->
       <div class="sub-chart-item">
@@ -187,9 +187,9 @@
         <div class="sub-chart-canvas" ref="macdChartRef" id="macd-chart"></div>
       </div>
 
-      <!-- 大单买入总额 子图（仅日线显示） -->
+      <!-- 大单买入数 子图（仅日线显示） -->
       <div class="sub-chart-item" v-show="showBigBuy">
-        <div class="sub-chart-label">大单买入总额</div>
+        <div class="sub-chart-label">大单买入数</div>
         <div class="sub-chart-canvas" ref="bigbuyChartRef" id="bigbuy-chart"></div>
       </div>
       <!-- 有大买单 子图（来自 big_buy_summary） -->
@@ -883,7 +883,7 @@ function renderAllCharts() {
     renderMainChart(lw, times)
     // MACD子图
     renderMacdChart(lw, times)
-    // 大单买入量子图
+    // 大单买入数子图
     if (showBigBuy.value) {
       renderBigbuyChart(lw, times)
     }
@@ -1054,7 +1054,7 @@ function renderMacdChart(lw, times) {
 
 
 
-// ====== 大单买入量子图（仅日线） ======
+// ====== 大单买入数子图（仅日线） ======
 function renderBigbuyChart(lw, times) {
   if (!bigbuyChartRef.value || !bigbuyData.value.length) return
   const { createChart, ColorType, HistogramSeries } = lw
@@ -1091,7 +1091,6 @@ function renderBigbuyChart(lw, times) {
   })
 
   // 构建完整的日期序列，与 K 线时间轴对齐
-  // 用 klineData 的所有日期为基础，大单数据有则填、无则 0
   const bbMap = {}
   bigbuyData.value.forEach(d => { bbMap[d.date.slice(0, 10)] = d })
 
@@ -1100,7 +1099,7 @@ function renderBigbuyChart(lw, times) {
     const match = bbMap[date]
     return {
       time: times[i],
-      value: match ? (match.amount || 0) : 0,
+      value: match ? (match.count || 0) : 0,
       color: match ? 'rgba(24,144,255,0.7)' : 'rgba(24,144,255,0.05)',
     }
   })
@@ -1131,7 +1130,7 @@ function renderBigbuyChart(lw, times) {
   }
 }
 
-// ====== 有大买单子图（参照大单买入总额实现） ======
+// ====== 有大买单子图（参照大单买入数实现） ======
 function renderRatioChart(lw, times) {
   if (!ratioChartRef.value || !bigDealData.value.length) return
   const { createChart, ColorType, HistogramSeries } = lw
@@ -1167,6 +1166,7 @@ function renderRatioChart(lw, times) {
     lastValueVisible: false,
   })
 
+
   // 构建完整的日期序列，与 K线时间轴对齐
   const bdMap = {}
   bigDealData.value.forEach(d => { bdMap[d.date.slice(0, 10)] = d })
@@ -1174,9 +1174,10 @@ function renderRatioChart(lw, times) {
   const chartData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
     const match = bdMap[date]
+    const val = match ? (match.qty || 0) : 0
     return {
       time: times[i],
-      value: match ? (match.qty || 0) : 0,
+      value: val,
       color: match ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
     }
   })
