@@ -138,7 +138,19 @@ async def trigger_update():
 # === 前端静态文件（必须在所有 API 路由之后注册） ===
 _frontend_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _frontend_dir.is_dir():
-    app.mount("/assets", StaticFiles(directory=str(_frontend_dir / "assets")), name="frontend_assets")
+    from starlette.responses import Response
+    from starlette.types import Receive, Scope, Send
+
+    class _NoCacheStaticFiles(StaticFiles):
+        """静态资源 + no-cache 头"""
+        async def get_response(self, path: str, scope):
+            resp = await super().get_response(path, scope)
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return resp
+
+    app.mount("/assets", _NoCacheStaticFiles(directory=str(_frontend_dir / "assets")), name="frontend_assets")
+
+    _cache_hdrs = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
     @app.api_route("/{path:path}", methods=["GET"])
     async def serve_frontend(path: str):
@@ -146,8 +158,8 @@ if _frontend_dir.is_dir():
             return HTMLResponse(status_code=404)
         file_path = _frontend_dir / path
         if file_path.is_file():
-            return FileResponse(str(file_path))
-        return FileResponse(str(_frontend_dir / "index.html"))
+            return FileResponse(str(file_path), headers=_cache_hdrs)
+        return FileResponse(str(_frontend_dir / "index.html"), headers=_cache_hdrs)
 
     logger.info(f"前端静态文件已挂载: {_frontend_dir}")
 else:
