@@ -179,7 +179,7 @@
       </div>
     </div>
 
-    <!-- 子图区域：MACD, 大单买入, 大单比例 -->
+    <!-- 子图区域：MACD, 大单买入, 大笔买入 -->
     <div class="sub-charts-area">
       <!-- MACD 子图 -->
       <div class="sub-chart-item">
@@ -192,9 +192,9 @@
         <div class="sub-chart-label">大单买入总额</div>
         <div class="sub-chart-canvas" ref="bigbuyChartRef" id="bigbuy-chart"></div>
       </div>
-      <!-- 大单比例 子图（仅日线显示） -->
+      <!-- 大笔买入 子图（来自 big_deal_summary） -->
       <div class="sub-chart-item" v-show="showBigBuy">
-        <div class="sub-chart-label">大单比例</div>
+        <div class="sub-chart-label">大笔买入</div>
         <div class="sub-chart-canvas" ref="ratioChartRef" id="ratio-chart"></div>
       </div>
     </div>
@@ -788,6 +788,18 @@ async function loadData() {
       }
     }
 
+    // 加载大笔买入数据（仅日线）
+    if (showBigBuy.value) {
+      try {
+        const bdRes = await getBigDealSummary(route.params.symbol || props.symbol, 60)
+        bigDealData.value = bdRes.data.data || []
+      } catch (e) {
+        bigDealData.value = []
+      }
+    } else {
+      bigDealData.value = []
+    }
+
     // 加载大单数据（仅日线）
     if (showBigBuy.value) {
       try {
@@ -874,7 +886,7 @@ function renderAllCharts() {
     if (showBigBuy.value) {
       renderBigbuyChart(lw, times)
     }
-    // 大单比例子图
+    // 大笔买入子图
     if (showBigBuy.value) {
       renderRatioChart(lw, times)
     }
@@ -1118,12 +1130,11 @@ function renderBigbuyChart(lw, times) {
   }
 }
 
-// ====== 大单比例子图（仅日线 - 与大单买入同构） ======
+// ====== 大笔买入子图（来自 big_deal_summary） ======
 function renderRatioChart(lw, times) {
-  if (!ratioChartRef.value || !bigbuyData.value.length || !klineData.value.length) return
+  if (!ratioChartRef.value || !bigDealData.value.length || !klineData.value.length) return
   const { createChart, ColorType, HistogramSeries } = lw
 
-  // 完全复制大单买入的图表配置
   ratioChart = createChart(ratioChartRef.value, {
     layout: {
       background: { type: ColorType.Solid, color: '#FFFEF5' },
@@ -1150,34 +1161,25 @@ function renderRatioChart(lw, times) {
     height: 120,
   })
 
-  // 完全复制大单买入的 series 配置，只换颜色（橙色）
   ratioHistogram = ratioChart.addSeries(HistogramSeries, {
     color: 'rgba(255, 165, 0, 0.7)',
-    priceFormat: { type: 'price', precision: 1, suffix: '%' },
+    priceFormat: { type: 'volume', precision: 0 },
     lastValueVisible: false,
   })
 
-  // 大单数据映射
-  const bbMap = {}
-  bigbuyData.value.forEach(d => { bbMap[d.date.slice(0, 10)] = d })
+  // big_deal_summary 数据按日期映射
+  const bdMap = {}
+  bigDealData.value.forEach(d => { bdMap[d.date] = d })
 
-  // 与大单买入相同的结构，数据改为：合计金额/当日成交额，归一化
-  let maxRatio = 0
-  const rawData = klineData.value.map((d, i) => {
+  const chartData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
-    const match = bbMap[date]
-    const klineAmount = d.amount || 0
-    const ratio = (match && klineAmount > 0) ? (match.amount / klineAmount) : 0
-    if (ratio > maxRatio) maxRatio = ratio
-    return { time: times[i], ratio, count: match?.count || 0 }
+    const match = bdMap[date]
+    return {
+      time: times[i],
+      value: match ? (match.amount || 0) : 0,
+      color: match && match.amount > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
+    }
   })
-  if (maxRatio === 0) maxRatio = 1
-
-  const chartData = rawData.map(r => ({
-    time: r.time,
-    value: (r.ratio / maxRatio) * 100,
-    color: r.ratio > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
-  }))
 
   if (chartData.length) ratioHistogram.setData(chartData)
 

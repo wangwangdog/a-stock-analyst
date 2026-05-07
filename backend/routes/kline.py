@@ -225,6 +225,37 @@ async def get_kline(
     )
 
 
+@router.get("/big-deal-summary/{symbol}")
+async def get_big_deal_summary(symbol: str, limit: int = 60):
+    """获取某只股票的大笔买入历史数据"""
+    from data.cache import DB_PATH
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        """SELECT trade_date, big_buy_count, big_buy_lots, big_buy_amount, total_lots, total_amount
+           FROM big_deal_summary
+           WHERE symbol=?
+           ORDER BY trade_date DESC
+           LIMIT ?""",
+        (symbol, limit)
+    ).fetchall()
+    conn.close()
+    return {
+        "symbol": symbol,
+        "data": [
+            {
+                "date": r[0],
+                "count": r[1],
+                "lots": r[2],
+                "amount": r[3],
+                "total_lots": r[4],
+                "total_amount": r[5],
+            }
+            for r in rows
+        ]
+    }
+
+
 @router.get("/stocks")
 async def get_stock_list():
     """获取A股股票列表"""

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 每日收盘后（17:00）补齐当日 K 线数据
+# 每日收盘后补齐当日 K 线数据
 # 1. 同步交易日历
 # 2. 判断今天是否是交易日
 # 3. 是则补充 stock_daily + kline_cache 当日数据
@@ -14,7 +14,6 @@ echo "=== $(date) 开始每日更新 ===" >> "$LOGFILE"
 echo "--- 交易日历同步 ---" >> "$LOGFILE"
 python3 -c "
 import sys, sqlite3
-from pathlib import Path
 sys.path.insert(0, 'backend')
 import baostock as bs
 DB = 'backend/data/stock_cache.db'
@@ -41,76 +40,116 @@ DB = 'backend/data/stock_cache.db'
 conn = sqlite3.connect(DB)
 r = conn.execute('SELECT is_trading_day FROM trade_calendar WHERE calendar_date=?', ('$TODAY',)).fetchone()
 conn.close()
-if r and r[0] == 1:
-    print('1')
-else:
-    print('0')
+if r and r[0] == 1: print('1')
+else: print('0')
 " 2>/dev/null)
 
-if [ "$IS_TRADING" = "1" ]; then
-    echo "✅ $TODAY 是交易日，开始数据同步" >> "$LOGFILE"
+if [ "$IS_TRADING" != "1" ]; then
+    echo "⏭️ $TODAY 非交易日，跳过数据同步" >> "$LOGFILE"
+    echo "=== $(date) 完成 ===" >> "$LOGFILE"
+    cat "$LOGFILE"
+    exit 0
+fi
 
-    # 3. stock_daily 增量（baostock 前复权）
-    echo "--- stock_daily 增量 ---" >> "$LOGFILE"
-    python3 -c "
+echo "✅ $TODAY 是交易日，开始数据同步" >> "$LOGFILE"
+
+# 3. 检查 baostock 今日数据是否就绪
+echo "--- 检查 baostock 今日数据是否就绪 ---" >> "$LOGFILE"
+DATA_READY=$(python3 -c "
+import baostock as bs
+bs.login()
+rs = bs.query_history_k_data_plus('sh.600000', 'date,open,close', start_date='$TODAY', end_date='$TODAY', frequency='d', adjustflag='2')
+ok = 0
+while rs.next():
+    r = rs.get_row_data()
+    if r[0] and r[1] != '': ok = 1
+bs.logout()
+print(ok)
+" 2>/dev/null)
+
+if [ "$DATA_READY" != "1" ]; then
+    echo "⏸️ baostock 今日数据尚未就绪，跳过（通常 17:00 后可用）" >> "$LOGFILE"
+    echo "=== $(date) 完成（数据未就绪）===" >> "$LOGFILE"
+    cat "$LOGFILE"
+    exit 0
+fi
+
+# 4. stock_daily 增量（baostock 前复权）- 优化版：分批查询，减少 sleep
+echo "--- stock_daily 增量 ---" >> "$LOGFILE"
+python3 -c "
 import sys, sqlite3, time
-from pathlib import Path
 sys.path.insert(0, 'backend')
 import baostock as bs
 DB = 'backend/data/stock_cache.db'
 
 conn = sqlite3.connect(DB)
-# 获取已有05-06有数据但无今日数据的股票
-today = '$TODAY'
 stocks = [r[0] for r in conn.execute('SELECT DISTINCT symbol FROM stock_daily').fetchall()]
 conn.close()
 
+print(f'需处理 {len(stocks)} 只股票', flush=True)
+
 bs.login()
-inserted = 0
-failed = 0
-batch = []
-for code in stocks:
+
+# 分批处理，每批 100 只后写一次 DB，避免长时间无输出
+batch_size = 100
+all_batch = []
+total_ok = 0
+total_fail = 0
+total_has_data = 0
+
+for idx, code in enumerate(stocks):
     prefix = 'sh' if code.startswith('6') or code.startswith('68') else 'sz'
     try:
         rs = bs.query_history_k_data_plus(
             f'{prefix}.{code}',
             'date,open,high,low,close,volume,amount',
-            start_date=today, end_date=today,
+            start_date='$TODAY', end_date='$TODAY',
             frequency='d', adjustflag='2'
         )
         while rs.next():
             r = rs.get_row_data()
             if r[0] and r[1] != '':
-                batch.append({
+                all_batch.append({
                     'symbol': code, 'date': r[0],
                     'open': float(r[1]), 'high': float(r[2]),
                     'low': float(r[3]), 'close': float(r[4]),
                     'volume': float(r[5] or 0), 'turnover': float(r[6] or 0),
                 })
-        time.sleep(0.02)
-        inserted += 1
+                total_has_data += 1
+        total_ok += 1
     except:
-        failed += 1
+        total_fail += 1
 
-if batch:
+    # 每批写入 + 进度
+    if (idx + 1) % batch_size == 0:
+        print(f'进度: {idx+1}/{len(stocks)} (OK:{total_ok} Fail:{total_fail} Data:{total_has_data})', flush=True)
+
+    time.sleep(0.005)  # 5ms 就够了
+
+if all_batch:
     import pandas as pd
-    df = pd.DataFrame(batch)
+    df = pd.DataFrame(all_batch)
     conn = sqlite3.connect(DB)
-    df.to_sql('stock_daily', conn, if_exists='append', index=False, method='multi')
+    # 逐条 upsert 避免主键冲突
+    for _, row in df.iterrows():
+        conn.execute('''
+            INSERT OR REPLACE INTO stock_daily (symbol, date, open, high, low, close, volume, turnover)
+            VALUES (?,?,?,?,?,?,?,?)
+        ''', (row['symbol'], row['date'], row['open'], row['high'],
+              row['low'], row['close'], row['volume'], row['turnover']))
     conn.commit()
     conn.close()
-    print(f'stock_daily 新增 {len(batch)} 条 ({inserted} OK, {failed} fail)')
+    print(f'stock_daily 写入完成: {len(all_batch)} 条')
 else:
-    print(f'无新数据 ({inserted} OK, {failed} fail)')
+    print(f'今日无新数据 (OK:{total_ok} Fail:{total_fail})')
+
 bs.logout()
+print('stock_daily 增量完成', flush=True)
 " >> "$LOGFILE" 2>&1
 
-    # 4. kline_cache 增量
-    echo "--- kline_cache 增量 ---" >> "$LOGFILE"
-    python3 backend/scripts/data_update.py >> "$LOGFILE" 2>&1
-
-else
-    echo "⏭️ $TODAY 非交易日，跳过数据同步" >> "$LOGFILE"
-fi
+# 5. kline_cache 增量
+echo "--- kline_cache 增量 ---" >> "$LOGFILE"
+python3 backend/scripts/data_update.py >> "$LOGFILE" 2>&1
 
 echo "=== $(date) 完成 ===" >> "$LOGFILE"
+cat "$LOGFILE"

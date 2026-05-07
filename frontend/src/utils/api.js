@@ -28,3 +28,7 @@ export function getStockList() {
 export function getBigBuy(symbol, days = 60) {
   return api.get(`/bigbuy/${symbol}`, { params: { days } })
 }
+
+export function getBigDealSummary(symbol, limit = 60) {
+  return api.get(`/big-deal-summary/${symbol}`, { params: { limit } })
+}
