@@ -1172,29 +1172,41 @@ function renderRatioChart(lw, times) {
   const bdMap = {}
   bigDealData.value.forEach(d => { bdMap[d.date] = d })
 
+  // 用买入数量（lots/手数）绘制柱形图
   const chartData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
     const match = bdMap[date]
+    const lots = match ? (match.lots || 0) : 0
     return {
       time: times[i],
-      value: match ? (match.amount || 0) : 0,
-      color: match && match.amount > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
+      value: lots,
+      color: lots > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
     }
   })
 
   if (chartData.length) ratioHistogram.setData(chartData)
 
-  // 柱顶标注百分比
-  const nonZero = rawData.filter(r => r.ratio > 0)
-  if (nonZero.length && typeof ratioHistogram.setMarkers === 'function') {
-    const markers = nonZero.map(r => ({
-      time: r.time,
-      position: 'aboveBar',
-      color: '#ff8c00',
-      shape: 'arrowUp',
-      text: (r.ratio * 100).toFixed(1) + '%',
-    }))
-    ratioHistogram.setMarkers(markers)
+  // 柱顶标注大笔买入次数
+  try {
+    const markers = []
+    klineData.value.forEach((d, i) => {
+      const date = d.date.slice(0, 10)
+      const match = bdMap[date]
+      if (match && match.count > 0) {
+        markers.push({
+          time: times[i],
+          position: 'aboveBar',
+          color: '#ff8c00',
+          shape: 'arrowUp',
+          text: String(match.count),
+        })
+      }
+    })
+    if (markers.length && typeof ratioHistogram.setMarkers === 'function') {
+      ratioHistogram.setMarkers(markers)
+    }
+  } catch (e) {
+    console.warn('大笔买入标记失败:', e)
   }
 }
 
