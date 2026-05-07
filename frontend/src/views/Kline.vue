@@ -1099,7 +1099,7 @@ function renderBigbuyChart(lw, times) {
     const match = bbMap[date]
     return {
       time: times[i],
-      value: match ? (match.count || 0) : 0,
+      value: match ? (match.volume || 0) : 0,
       color: match ? 'rgba(24,144,255,0.7)' : 'rgba(24,144,255,0.05)',
     }
   })
@@ -1118,7 +1118,7 @@ function renderBigbuyChart(lw, times) {
           position: 'aboveBar',
           color: '#e74c3c',
           shape: 'arrowUp',
-          text: String(match.count),
+          text: String(match.volume || match.count || 0),
         })
       }
     })
@@ -1196,7 +1196,7 @@ function renderRatioChart(lw, times) {
           position: 'aboveBar',
           color: '#ff8c00',
           shape: 'arrowUp',
-          text: String(match.count),
+          text: String(match.volume || match.count || 0),
         })
       }
     })
