@@ -16,7 +16,6 @@ import akshare as ak
 from loguru import logger
 
 DB = str(Path(__file__).resolve().parent.parent / "data" / "stock_cache.db")
-BIG_DEAL_THRESHOLD = 500_000  # 大单金额阈值：50 万元
 INTERVAL = 0.15  # 每只股票间隔（秒）
 
 # 交易所前缀映射
@@ -66,8 +65,28 @@ def get_stock_list() -> list[tuple[str, str]]:
         return []
 
 
+# 价格分档大单手数阈值
+# 成交量单位：手（akshare tick 数据默认单位为手）
+PRICE_TIERS = [
+    (5, 50000),      # 5元以下 ≥ 50000手
+    (10, 25000),     # 5~10元 ≥ 25000手
+    (50, 15000),     # 10~50元 ≥ 15000手
+    (100, 6000),     # 50~100元 ≥ 6000手
+    (500, 3000),     # 100~500元 ≥ 3000手
+    (float("inf"), 1000),  # 500元以上 ≥ 1000手
+]
+
+
+def get_threshold_lots(price: float) -> int:
+    """按成交价格返回大单阈值（手数）"""
+    for max_price, lots in PRICE_TIERS:
+        if price < max_price:
+            return lots
+    return 1000
+
+
 def fetch_tick(symbol: str) -> pd.DataFrame | None:
-    """获取当日逐笔成交"""
+    """获取当日逐笔成交（单位：手）"""
     try:
         df = ak.stock_zh_a_tick_tx_js(f"{_prefix(symbol)}{symbol}")
         if df is not None and not df.empty:
@@ -77,20 +96,22 @@ def fetch_tick(symbol: str) -> pd.DataFrame | None:
     return None
 
 
-def extract_big_deals(df: pd.DataFrame, threshold: float) -> dict:
-    """从逐笔成交中提取大单汇总"""
+def extract_big_deals(df: pd.DataFrame) -> dict:
+    """从逐笔成交中按价格分档阈值提取大单汇总"""
     if "成交金额" not in df.columns:
         return None
 
     total_count = len(df)
     total_amount = df["成交金额"].sum()
 
-    # 提取大单
-    big = df[df["成交金额"] >= threshold]
+    # 逐笔判断是否达到该价格档位的大单手数阈值
+    def _is_big(row):
+        return row["成交量"] >= get_threshold_lots(row["成交价格"])
+
+    big = df[df.apply(_is_big, axis=1)]
     if big.empty:
         return {
-            "big_deal_count": 0,
-            "big_deal_amount": 0,
+            "big_deal_count": 0, "big_deal_amount": 0,
             "buy_count": 0, "buy_amount": 0,
             "sell_count": 0, "sell_amount": 0,
             "neutral_count": 0, "neutral_amount": 0,
@@ -123,7 +144,7 @@ def main():
 
     today = date.today().strftime("%Y-%m-%d")
     logger.info(f"🚀 开始大单采集: {today}")
-    logger.info(f"  大单阈值: {BIG_DEAL_THRESHOLD / 10000:.0f} 万")
+    logger.info(f"  大单阈值: 按价格分6档（5↓/5~10/10~50/50~100/100~500/500↑ → 50000/25000/15000/6000/3000/1000手）")
 
     init_table()
 
@@ -166,7 +187,7 @@ def main():
             time.sleep(INTERVAL)
             continue
 
-        result = extract_big_deals(df, BIG_DEAL_THRESHOLD)
+        result = extract_big_deals(df)
         if result is None:
             failed += 1
             time.sleep(INTERVAL)
