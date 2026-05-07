@@ -3,7 +3,8 @@
 触发：交易日 15:05
 - 扫描全市场逐笔成交（买盘）
 - 连续最多3笔买入合并，手数达价格分档阈值即为1次"大笔买入"
-- 尾盘 15:00 及之后的成交不计入
+- 开盘 09:30 前（集合竞价）及尾盘 15:00 后的成交不计入
+- 仅统计 09:30~15:00 连续竞价时段
 - 按股票每日汇总
 """
 import sys
@@ -20,7 +21,8 @@ from loguru import logger
 
 DB = str(Path(__file__).resolve().parent.parent / "data" / "stock_cache.db")
 INTERVAL = 0.15  # 每只股票间隔（秒）
-TAIL_CUT = "15:00"  # 尾盘截止时间（含，之后不计入）
+OPEN_START = "09:30"  # 开盘后第一笔才算（剔除集合竞价）
+TAIL_CUT = "15:00"    # 尾盘截止时间（含，之后不计入）
 
 # 价格分档大单手数阈值（成交量单位：手）
 PRICE_TIERS = [
@@ -97,8 +99,8 @@ def calc_big_buys(df: pd.DataFrame) -> dict:
         return {"big_buy_count": 0, "big_buy_lots": 0, "big_buy_amount": 0,
                 "total_lots": 0, "total_amount": 0}
 
-    # 过滤尾盘 15:00 后的交易
-    day_df = df[df["成交时间"] < TAIL_CUT].copy()
+    # 过滤开盘前（含集合竞价）和尾盘后
+    day_df = df[(df["成交时间"] >= OPEN_START) & (df["成交时间"] < TAIL_CUT)].copy()
     if day_df.empty:
         return {"big_buy_count": 0, "big_buy_lots": 0, "big_buy_amount": 0,
                 "total_lots": 0, "total_amount": 0}
@@ -173,7 +175,7 @@ def main():
 
     today = date.today().strftime("%Y-%m-%d")
     logger.info(f"🚀 big_deal_summary: {today}")
-    logger.info(f"  规则: 买盘连续≤3笔合并达阈值 | 尾盘 {TAIL_CUT} 后不计入")
+    logger.info(f"  规则: {OPEN_START}~{TAIL_CUT} 连续竞价时段 | 买盘连续≤3笔合并达阈值")
 
     init_table()
 
