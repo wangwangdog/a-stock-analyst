@@ -36,12 +36,30 @@ PRICE_TIERS = [
     (float("inf"), 1000),# 500元以上 ≥ 1000手
 ]
 
+# 小单排除阈值（低于此值的不记入 all_stcok_daydeal）
+SMALL_TIERS = [
+    (5, 5000),           # 5元以下  < 5000手 → 小单排除
+    (10, 3000),          # 5~10元   < 3000手
+    (50, 2000),          # 10~50元  < 2000手
+    (100, 500),          # 50~100元 < 500手
+    (500, 200),          # 100~500元< 200手
+    (float("inf"), 50), # 500元以上 < 50手
+]
+
 
 def get_threshold_lots(price: float) -> int:
     for max_price, lots in PRICE_TIERS:
         if price < max_price:
             return lots
     return 1000
+
+
+def get_small_threshold(price: float) -> int:
+    """小单阈值：低于此手数的为小单，不记入 all_stcok_daydeal"""
+    for max_price, lots in SMALL_TIERS:
+        if price < max_price:
+            return lots
+    return 50
 
 
 def init_table():
@@ -59,6 +77,20 @@ def init_table():
             PRIMARY KEY (trade_date, symbol)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS all_stcok_daydeal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_date TEXT,
+            symbol TEXT,
+            time TEXT,
+            price REAL,
+            qty REAL,
+            amount REAL,
+            direction TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_asd_date ON all_stcok_daydeal(trade_date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_asd_symbol ON all_stcok_daydeal(symbol)")
     conn.commit()
     conn.close()
 
@@ -188,12 +220,31 @@ def _to_num(v):
 
 
 def _process_stock(symbol: str, name: str, today: str) -> dict:
-    """处理单只股票：拉取 tick → 计算大笔买入 → 返回结果"""
+    """处理单只股票：拉取 tick → 计算大笔买入 + 提取非小单交易"""
     try:
         df = fetch_tick(symbol)
         if df is None or df.empty:
-            return {"symbol": symbol, "name": name, "ok": False}
+            return {"symbol": symbol, "name": name, "ok": False, "daydeal": []}
         result = calc_big_buys(df)
+
+        # 提取非小单交易（写入 all_stcok_daydeal）
+        daydeal = []
+        if "成交金额" in df.columns:
+            for _, row in df.iterrows():
+                price = float(row.get("成交价格", 0))
+                qty = float(row.get("成交量", 0))
+                threshold = get_small_threshold(price)
+                if qty >= threshold:
+                    daydeal.append({
+                        "trade_date": today,
+                        "symbol": symbol,
+                        "time": str(row.get("成交时间", "")),
+                        "price": price,
+                        "qty": qty,
+                        "amount": float(row.get("成交金额", 0)),
+                        "direction": str(row.get("性质", "")),
+                    })
+
         return {
             "symbol": symbol, "name": name,
             "ok": True,
@@ -203,6 +254,7 @@ def _process_stock(symbol: str, name: str, today: str) -> dict:
             "total_lots": _to_num(result["total_lots"]),
             "total_amount": _to_num(result["total_amount"]),
             "has_big": result["big_buy_count"] > 0,
+            "daydeal": daydeal,
         }
     except Exception as e:
         logger.debug(f"[{symbol}] 处理异常: {e}")
@@ -210,7 +262,7 @@ def _process_stock(symbol: str, name: str, today: str) -> dict:
 
 
 def _batch_write(rows: list[dict], today: str):
-    """批量写入数据库"""
+    """批量写入 big_deal_summary 和 all_stcok_daydeal"""
     with _db_lock:
         conn = sqlite3.connect(DB)
         try:
@@ -225,6 +277,12 @@ def _batch_write(rows: list[dict], today: str):
                      r["big_buy_count"], r["big_buy_lots"], r["big_buy_amount"],
                      r["total_lots"], r["total_amount"])
                 )
+                # 同时写入 all_stcok_daydeal（非小单交易）
+                for d in r.get("daydeal", []):
+                    conn.execute(
+                        "INSERT INTO all_stcok_daydeal (trade_date, symbol, time, price, qty, amount, direction) VALUES (?,?,?,?,?,?,?)",
+                        (d["trade_date"], d["symbol"], d["time"], d["price"], d["qty"], d["amount"], d["direction"])
+                    )
             conn.commit()
         finally:
             conn.close()
