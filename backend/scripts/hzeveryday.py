@@ -54,7 +54,8 @@ def migrate_and_cleanup():
             大笔买数 INTEGER,
             合计金额 REAL,
             合计手数 REAL,
-            买入日期 TEXT
+            买入日期 TEXT,
+            UNIQUE(股票代码, 买入日期)
         )
         """)
 
@@ -102,8 +103,9 @@ def migrate_and_cleanup():
 
             sum_shou, sum_amount, big_count, stock_name = row
 
+            # 使用 INSERT OR REPLACE 防止重复（配合 UNIQUE 约束）
             cursor.execute("""
-            INSERT INTO hzeveryday (股票代码, 股票名称, 大笔买数, 合计金额, 合计手数, 买入日期)
+            INSERT OR REPLACE INTO hzeveryday (股票代码, 股票名称, 大笔买数, 合计金额, 合计手数, 买入日期)
             VALUES (?, ?, ?, ?, ?, ?)
             """, (padded_code, stock_name, big_count, sum_amount, sum_shou, buy_date))
 

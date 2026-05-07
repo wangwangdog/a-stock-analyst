@@ -9,6 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, FileResponse
 from loguru import logger
 
 # 先初始化缓存和迁移
@@ -44,7 +46,6 @@ app.include_router(favorites_router)
 app.include_router(auth_router)
 app.include_router(strategy_router)
 
-
 # === 启动时数据检查 ===
 @app.on_event("startup")
 async def startup_check():
@@ -70,7 +71,7 @@ async def startup_check():
         logger.debug(f"[启动检查] 数据检查跳过: {e}")
 
 
-@app.get("/")
+@app.get("/api/root")
 async def root():
     return {
         "service": "A-Stock Analyst",
@@ -132,6 +133,25 @@ async def trigger_update():
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+# === 前端静态文件（必须在所有 API 路由之后注册） ===
+_frontend_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _frontend_dir.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(_frontend_dir / "assets")), name="frontend_assets")
+
+    @app.api_route("/{path:path}", methods=["GET"])
+    async def serve_frontend(path: str):
+        if path.startswith("api/") or path == "api":
+            return HTMLResponse(status_code=404)
+        file_path = _frontend_dir / path
+        if file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(_frontend_dir / "index.html"))
+
+    logger.info(f"前端静态文件已挂载: {_frontend_dir}")
+else:
+    logger.warning("前端静态目录不存在 (frontend/dist)，仅 API 模式运行")
 
 
 if __name__ == "__main__":

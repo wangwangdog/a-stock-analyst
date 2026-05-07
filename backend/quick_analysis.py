@@ -8,40 +8,70 @@ import os
 import json
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
+import sqlite3
 from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger('quick_analysis')
+
+# SQLite cache path
+CACHE_DIR = Path(__file__).resolve().parent / "data"
+DB_PATH = str(CACHE_DIR / "stock_cache.db")
+
+
+def _get_kline_from_cache(ticker: str, days: int = 60) -> list[dict]:
+    """
+    从 SQLite kline_cache 读取该股票最近 days 天的日线数据（不限数据源）
+    返回按 trade_date 降序排列的列表
+    """
+    if not Path(DB_PATH).exists():
+        logger.warning(f"[快速分析] 缓存数据库不存在: {DB_PATH}")
+        return []
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(f"""
+            SELECT trade_date, open, close, high, low, volume, amount, source
+            FROM kline_cache
+            WHERE symbol = ? AND period = 'daily'
+            ORDER BY trade_date DESC
+            LIMIT {days}
+        """, (ticker,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        logger.warning(f"[快速分析] 缓存读取失败: {e}")
+        return []
 
 
 def _build_kline_summary(ticker: str) -> dict:
     """取近期 K 线和技术指标，返回结构化摘要"""
     result = {"klines": "", "bigbuy": "", "error": None}
-    
-    # 1. Try project's cached data first
-    try:
-        import data.akshare_fetcher as akf
-        df = akf.get_daily_kline(ticker)
-        if df is not None and not df.empty:
-            df = df.sort_values('trade_date', ascending=False).head(30)
-            lines = []
-            for _, r in df.iterrows():
-                pct = r.get('pct_change', r.get('涨跌幅', ''))
-                vol = r.get('volume', r.get('成交量', ''))
-                lines.append(
-                    f"{r['trade_date']} 开:{r['open']} 收:{r['close']} "
-                    f"高:{r['high']} 低:{r['low']} 量:{vol} 涨幅:{pct}%"
-                )
-            result["klines"] = "\n".join(lines)
-            return result
-    except Exception as e:
-        result["error"] = f"缓存获取失败: {e}"
-    
-    # 2. Fallback: AKShare directly
+
+    # 1. 从 SQLite kline_cache 读取（baostock/akshare 均可）
+    klines = _get_kline_from_cache(ticker, days=60)
+    if klines:
+        lines = []
+        for r in klines[:30]:
+            date_str = r["trade_date"][:10]
+            vol = r.get("volume", 0) or 0
+            amount = r.get("amount", 0) or 0
+            lines.append(
+                f"{date_str} 开:{r['open']} 收:{r['close']} "
+                f"高:{r['high']} 低:{r['low']} 量:{vol:.0f} 额:{amount:.0f}"
+            )
+        result["klines"] = "\n".join(lines)
+        if klines:
+            result["latest_close"] = klines[0].get("close", "")
+            result["latest_date"] = klines[0].get("trade_date", "")[:10]
+        return result
+
+    # 2. 回退：AKShare 直连
+    result["error"] = "缓存无数据"
     try:
         import akshare as ak
-        from datetime import datetime, timedelta
-        # AKShare uses YYYYMMDD format (no dashes)
         end_str = datetime.now().strftime("%Y%m%d")
         start_str = (datetime.now() - timedelta(days=180)).strftime("%Y%m%d")
         adf = ak.stock_zh_a_hist(symbol=ticker, period="daily",
@@ -55,9 +85,11 @@ def _build_kline_summary(ticker: str) -> dict:
                     f"高:{r['最高']} 低:{r['最低']} 量:{r['成交量']} 涨幅:{r['涨跌幅']}%"
                 )
             result["klines"] = "\n".join(lines)
+            result["latest_close"] = adf.iloc[0]["收盘"]
+            result["latest_date"] = str(adf.iloc[0]["日期"])
     except Exception as e:
-        result["error"] = f"直接获取失败: {e}"
-    
+        result["error"] = f"缓存+直连均失败: {e}"
+
     return result
 
 
@@ -90,37 +122,20 @@ def quick_analyze(
     if not kline_str:
         return {
             "success": False,
-            "error": f"无法获取 {ticker} 的行情数据"
+            "error": f"无法获取 {ticker} 的行情数据 (缓存无数据、AKShare 不可用)"
         }
     
-    # 取最后一根 K 线的最新价格
-    last_close = ""
-    if kline_str:
-        last_line = kline_str.split("\n")[0]
-        parts = last_line.split()
-        for p in parts:
-            if p.startswith("收:"):
-                last_close = p.replace("收:", "")
-                break
-
-    # 获取策略信号
-    try:
-        from agent_utils import get_strategy_signals_for_agent
-        strategy_signals = get_strategy_signals_for_agent(ticker)
-    except Exception:
-        strategy_signals = ""
-
-    strategy_block = f"\n量化策略信号: {strategy_signals}\n" if strategy_signals else ""
+    last_close = data.get("latest_close", "")
+    latest_date = data.get("latest_date", "")
+    date_note = f" (数据截止 {latest_date})" if latest_date else ""
 
     prompt = f"""你是一位A股短线技术分析师。请基于以下数据，对股票 {ticker} {stock_name} 做快速研判。
 
-截止数据时间，最新收盘价: {last_close}
+截止数据时间{date_note}，最新收盘价: {last_close}
 
 近期K线数据(最近30个交易日，最新在前):
 {kline_str}
 
-资金流向: {data.get('bigbuy', '暂无')}
-{strategy_block}
 请分析以下两个核心问题，用JSON格式回答:
 
 1. **主力是否近期介入**: 通过量价关系判断 - 近期是否有放量上涨、大单买入增多等主力介入迹象？
@@ -146,7 +161,6 @@ def quick_analyze(
         )
         resp = llm.invoke(prompt)
         text = resp.content.strip()
-        # 提取 JSON
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
@@ -155,6 +169,7 @@ def quick_analyze(
         result = json.loads(text)
         result["success"] = True
         result["last_price"] = last_close
+        result["latest_date"] = latest_date
         return result
     except Exception as e:
         logger.error(f"快速分析失败: {e}")

@@ -122,6 +122,11 @@ def main():
 
         try:
             df = process_excel_file(file_path, buy_date)
+            # 删除该日期旧数据，避免重复
+            c = conn.cursor()
+            c.execute(f"DELETE FROM {TABLE_NAME} WHERE 买入日期=?", (buy_date,))
+            if c.rowcount > 0:
+                print(f"  🧹 已删除 {c.rowcount} 条旧数据（买入日期: {buy_date}）")
             df.to_sql(TABLE_NAME, conn, if_exists='append', index=False)
             rows = len(df)
             total_rows += rows

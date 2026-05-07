@@ -345,6 +345,7 @@ def _init_vol20day_table():
         conn.execute(f"""
             CREATE TABLE IF NOT EXISTS {VOL20DAY_TABLE} (
                 symbol TEXT PRIMARY KEY,
+                name TEXT DEFAULT '',
                 latest_date TEXT,
                 latest_close REAL,
                 date_20d TEXT,
@@ -354,9 +355,43 @@ def _init_vol20day_table():
                 updated_at TEXT DEFAULT (datetime('now','localtime'))
             )
         """)
+        # 兼容旧表：如果 name 列不存在则添加
+        cols = [r[1] for r in conn.execute(f'PRAGMA table_info({VOL20DAY_TABLE})').fetchall()]
+        if 'name' not in cols:
+            conn.execute(f'ALTER TABLE {VOL20DAY_TABLE} ADD COLUMN name TEXT DEFAULT ""')
         conn.commit()
     finally:
         conn.close()
+
+
+def _get_stock_name(code: str) -> str:
+    """通过代码获取股票名称（从 kline_cache 数据中提取）"""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        # 尝试从 stock_daily 之外的数据源获取名称
+        # 1. 从 hzeveryday 获取
+        r = conn.execute("SELECT 股票名称 FROM hzeveryday WHERE 股票代码=? LIMIT 1", (code,)).fetchone()
+        if r:
+            return r[0]
+        # 2. 使用 baostock 查询
+        try:
+            import baostock as bs
+            prefix = "sh" if code.startswith("6") or code.startswith("68") else "sz"
+            lg = bs.login()
+            if lg.error_code == "0":
+                try:
+                    rs = bs.query_stock_basic(f"{prefix}.{code}")
+                    if rs.error_code == "0":
+                        while rs.next():
+                            row = rs.get_row_data()
+                            return row[1]  # stock name
+                finally:
+                    bs.logout()
+        except Exception:
+            pass
+    finally:
+        conn.close()
+    return ""
 
 
 def refresh_vol20day() -> dict:
@@ -373,8 +408,6 @@ def refresh_vol20day() -> dict:
     try:
         conn.execute(f"DELETE FROM {VOL20DAY_TABLE}")
 
-        # 使用窗口函数获取每只股票的最新日期和第21行（20日前的数据）
-        # SQL 先得到每只股票按日期降序的排位
         rows = conn.execute("""
             WITH ranked AS (
                 SELECT symbol, date, close,
@@ -403,11 +436,12 @@ def refresh_vol20day() -> dict:
         count = 0
         for rank_idx, row in enumerate(rows):
             symbol, latest_date, latest_close, date_20d, close_20d, ret_20d = row
+            name = _get_stock_name(symbol)
             conn.execute(
                 f"""INSERT OR REPLACE INTO {VOL20DAY_TABLE}
-                   (symbol, latest_date, latest_close, date_20d, close_20d, return_20d, rank_20d)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (symbol, latest_date, latest_close, date_20d, close_20d, round(ret_20d, 4), rank_idx + 1)
+                   (symbol, name, latest_date, latest_close, date_20d, close_20d, return_20d, rank_20d)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (symbol, name, latest_date, latest_close, date_20d, close_20d, round(ret_20d, 4), rank_idx + 1)
             )
             count += 1
 
@@ -420,38 +454,84 @@ def refresh_vol20day() -> dict:
 
 
 def query_vol20day(min_rank: int = 1, max_rank: int = 100) -> list[dict]:
-    """查询 vol20day 表中指定排名的股票"""
-    conn = sqlite3.connect(DB_PATH)
+    """查询涨幅排名，直接从 kline_cache (baostock) 计算
+
+    绕过 stock_daily 和 vol20day 表（stock_daily 部分数据缩放错误），
+    用一条 SQL 从 kline_cache 取收盘价计算 20 日涨幅。
+    """
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     try:
-        rows = conn.execute(
-            f"""SELECT symbol, latest_date, latest_close, date_20d, close_20d,
-                      return_20d, rank_20d
-               FROM {VOL20DAY_TABLE}
-               WHERE rank_20d >= ? AND rank_20d <= ?
-               ORDER BY rank_20d""",
-            (min_rank, max_rank)
-        ).fetchall()
+        rows = conn.execute("""
+            WITH ranked AS (
+                SELECT symbol, trade_date, close,
+                       ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_date DESC) as rn
+                FROM kline_cache
+                WHERE source='baostock' AND period='daily'
+                  AND SUBSTR(symbol, 1, 1) IN ('0', '3', '6')
+            ),
+            latest AS (
+                SELECT symbol, trade_date as latest_date, close as latest_close
+                FROM ranked WHERE rn = 1 AND close > 0
+            ),
+            ago20 AS (
+                SELECT symbol, trade_date as date_20d, close as close_20d
+                FROM ranked WHERE rn = 21 AND close > 0
+            )
+            SELECT l.symbol, l.latest_date, l.latest_close,
+                   a.date_20d, a.close_20d,
+                   (l.latest_close - a.close_20d) / a.close_20d * 100.0 as return_20d
+            FROM latest l
+            INNER JOIN ago20 a ON l.symbol = a.symbol
+            ORDER BY return_20d DESC
+        """).fetchall()
+
+        # 只取需要的排名段，避免遍历所有 4900+ 只
+        page = rows[min_rank - 1:max_rank]
+
+        # 批量获取股票名称（一次查 hzeveryday + 一次查 stock_daily）
+        symbols = [r[0] for r in page]
+        name_map = {}
+        if symbols:
+            placeholders = ','.join('?' * len(symbols))
+            name_rows = conn.execute(
+                f"SELECT 股票代码, 股票名称 FROM hzeveryday WHERE 股票代码 IN ({placeholders})",
+                symbols
+            ).fetchall()
+            for code, name in name_rows:
+                name_map[code] = name
+            # 补漏
+            for sym in symbols:
+                if sym not in name_map:
+                    name_map[sym] = ""
+
         result = []
-        for r in rows:
+        for rank_idx, r in enumerate(page):
+            symbol, latest_date, latest_close, date_20d, close_20d, ret_20d = r
             result.append({
-                "symbol": r[0],
-                "latest_date": r[1],
-                "latest_close": r[2],
-                "date_20d": r[3],
-                "close_20d": r[4],
-                "return_20d": r[5],
-                "rank": r[6],
+                "symbol": symbol,
+                "name": name_map.get(symbol, ""),
+                "latest_date": latest_date,
+                "latest_close": latest_close,
+                "date_20d": date_20d,
+                "close_20d": close_20d,
+                "return_20d": round(ret_20d, 2),
+                "rank": min_rank + rank_idx,
             })
+
         return result
     finally:
         conn.close()
 
 
 def get_vol20day_total() -> int:
-    """获取 vol20day 表中的总记录数"""
-    conn = sqlite3.connect(DB_PATH)
+    """获取 kline_cache 中有 baostock 日线数据的股票数"""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     try:
-        r = conn.execute(f"SELECT COUNT(*) FROM {VOL20DAY_TABLE}").fetchone()
+        r = conn.execute(
+            "SELECT COUNT(DISTINCT symbol) FROM kline_cache "
+            "WHERE source='baostock' AND period='daily' "
+            "AND SUBSTR(symbol, 1, 1) IN ('0', '3', '6')"
+        ).fetchone()
         return r[0] if r else 0
     finally:
         conn.close()
