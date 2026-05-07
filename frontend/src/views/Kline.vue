@@ -235,7 +235,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { showToast, showDialog } from 'vant'
+import { showToast, showDialog, closeToast } from 'vant'
 import { getKline, getBigBuy } from '../utils/api.js'
 
 const props = defineProps({ symbol: { type: String, default: '000001' } })
@@ -802,7 +802,7 @@ async function loadData() {
 
     await nextTick()
     renderAllCharts()
-    showToast.clear()
+    closeToast()
   } catch (e) {
     console.error('❌ loadData 失败:', e, e.message)
     showToast({ message: '数据加载失败', type: 'fail' })
