@@ -179,7 +179,7 @@
       </div>
     </div>
 
-    <!-- 子图区域：MACD, 大单买入, 大笔买入 -->
+    <!-- 子图区域：MACD, 大单买入, 有大买单 -->
     <div class="sub-charts-area">
       <!-- MACD 子图 -->
       <div class="sub-chart-item">
@@ -192,9 +192,9 @@
         <div class="sub-chart-label">大单买入总额</div>
         <div class="sub-chart-canvas" ref="bigbuyChartRef" id="bigbuy-chart"></div>
       </div>
-      <!-- 大笔买入 子图（来自 big_deal_summary） -->
+      <!-- 有大买单 子图（来自 big_buy_summary） -->
       <div class="sub-chart-item" v-show="showBigBuy">
-        <div class="sub-chart-label">大笔买入</div>
+        <div class="sub-chart-label">有大买单</div>
         <div class="sub-chart-canvas" ref="ratioChartRef" id="ratio-chart"></div>
       </div>
     </div>
@@ -236,7 +236,7 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { showToast, showDialog, closeToast } from 'vant'
-import { getKline, getBigBuy } from '../utils/api.js'
+import { getKline, getBigBuy, getBigBuySummary } from '../utils/api.js'
 
 const props = defineProps({ symbol: { type: String, default: '000001' } })
 const route = useRoute()
@@ -792,7 +792,7 @@ async function loadData() {
     // 加载大笔买入数据（仅日线）
     if (showBigBuy.value) {
       try {
-        const bdRes = await getBigDealSummary(route.params.symbol || props.symbol, 60)
+        const bdRes = await getBigBuySummary(route.params.symbol || props.symbol, 60)
         bigDealData.value = bdRes.data.data || []
       } catch (e) {
         bigDealData.value = []
@@ -887,7 +887,7 @@ function renderAllCharts() {
     if (showBigBuy.value) {
       renderBigbuyChart(lw, times)
     }
-    // 大笔买入子图
+    // 有大买单子图
     if (showBigBuy.value) {
       renderRatioChart(lw, times)
     }
@@ -1131,7 +1131,7 @@ function renderBigbuyChart(lw, times) {
   }
 }
 
-// ====== 大笔买入子图（来自 big_deal_summary） ======
+// ====== 有大买单子图（来自 big_buy_summary） ======
 function renderRatioChart(lw, times) {
   if (!ratioChartRef.value || !bigDealData.value.length || !klineData.value.length) return
   const { createChart, ColorType, HistogramSeries } = lw
@@ -1172,21 +1172,21 @@ function renderRatioChart(lw, times) {
   const bdMap = {}
   bigDealData.value.forEach(d => { bdMap[d.date] = d })
 
-  // 用买入数量（lots/手数）绘制柱形图
+  // 用买入数量（股数）绘制柱形图
   const chartData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
     const match = bdMap[date]
-    const lots = match ? (match.lots || 0) : 0
+    const qty = match ? (match.qty || 0) : 0
     return {
       time: times[i],
-      value: lots,
-      color: lots > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
+      value: qty,
+      color: qty > 0 ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
     }
   })
 
   if (chartData.length) ratioHistogram.setData(chartData)
 
-  // 柱顶标注大笔买入次数
+  // 柱顶标注有大买单次数
   try {
     const markers = []
     klineData.value.forEach((d, i) => {
@@ -1206,7 +1206,7 @@ function renderRatioChart(lw, times) {
       ratioHistogram.setMarkers(markers)
     }
   } catch (e) {
-    console.warn('大笔买入标记失败:', e)
+    console.warn('有大买单标记失败:', e)
   }
 }
 

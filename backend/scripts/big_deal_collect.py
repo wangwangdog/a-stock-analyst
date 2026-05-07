@@ -11,6 +11,8 @@ import sys
 import time
 from pathlib import Path
 from datetime import date
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -169,6 +171,65 @@ def calc_big_buys(df: pd.DataFrame) -> dict:
     }
 
 
+_db_lock = threading.Lock()
+
+
+def _to_num(v):
+    """确保值存为 Python 原生数字（避免 numpy.float64 被 sqlite3 存成 blob）"""
+    if v is None:
+        return 0
+    if isinstance(v, bytes):
+        try:
+            import struct
+            return struct.unpack('d', v)[0] if len(v) == 8 else 0.0
+        except:
+            return 0.0
+    return float(v)
+
+
+def _process_stock(symbol: str, name: str, today: str) -> dict:
+    """处理单只股票：拉取 tick → 计算大笔买入 → 返回结果"""
+    try:
+        df = fetch_tick(symbol)
+        if df is None or df.empty:
+            return {"symbol": symbol, "name": name, "ok": False}
+        result = calc_big_buys(df)
+        return {
+            "symbol": symbol, "name": name,
+            "ok": True,
+            "big_buy_count": int(result["big_buy_count"]),
+            "big_buy_lots": _to_num(result["big_buy_lots"]),
+            "big_buy_amount": _to_num(result["big_buy_amount"]),
+            "total_lots": _to_num(result["total_lots"]),
+            "total_amount": _to_num(result["total_amount"]),
+            "has_big": result["big_buy_count"] > 0,
+        }
+    except Exception as e:
+        logger.debug(f"[{symbol}] 处理异常: {e}")
+        return {"symbol": symbol, "name": name, "ok": False}
+
+
+def _batch_write(rows: list[dict], today: str):
+    """批量写入数据库"""
+    with _db_lock:
+        conn = sqlite3.connect(DB)
+        try:
+            for r in rows:
+                conn.execute(
+                    """INSERT OR REPLACE INTO big_deal_summary
+                       (trade_date, symbol, name,
+                        big_buy_count, big_buy_lots, big_buy_amount,
+                        total_lots, total_amount)
+                       VALUES (?,?,?, ?,?,?, ?,?)""",
+                    (today, r["symbol"], r["name"],
+                     r["big_buy_count"], r["big_buy_lots"], r["big_buy_amount"],
+                     r["total_lots"], r["total_amount"])
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+
 def main():
     logger.remove()
     logger.add(sys.stdout, format="<green>{time:HH:mm:ss}</green> | {message}")
@@ -184,61 +245,64 @@ def main():
         logger.error("无法获取股票列表，终止")
         return
 
-    logger.info(f"  待扫描: {len(stocks)} 只")
-
+    # 过滤已处理的股票
     conn = sqlite3.connect(DB)
+    existing_set = set(
+        r[0] for r in conn.execute(
+            "SELECT symbol FROM big_deal_summary WHERE trade_date=?", (today,)
+        ).fetchall()
+    )
+    conn.close()
+    stocks = [(s, n) for s, n in stocks if s not in existing_set]
+
+    logger.info(f"  待扫描: {len(stocks)} 只（已跳过 {len(existing_set)} 只已处理）")
+
+    if not stocks:
+        logger.info("全部已处理，跳过")
+        return
+
+    MAX_WORKERS = 8
+    BATCH_WRITE = 100  # 每 N 条批量写入一次
     ok = 0
     failed = 0
-    skipped = 0
     has_big = 0
+    batch = []
 
-    for i, (symbol, name) in enumerate(stocks):
-        # 跳过已有记录的股票
-        existing = conn.execute(
-            "SELECT 1 FROM big_deal_summary WHERE trade_date=? AND symbol=?",
-            (today, symbol)
-        ).fetchone()
-        if existing:
-            skipped += 1
-            if (i + 1) % 500 == 0:
-                logger.info(f"  {i+1}/{len(stocks)}: OK={ok}, 有大笔={has_big}, 跳过={skipped}, 失败={failed}")
-            continue
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(_process_stock, symbol, name, today): (symbol, name)
+            for symbol, name in stocks
+        }
 
-        df = fetch_tick(symbol)
-        if df is None or df.empty:
-            conn.execute(
-                "INSERT OR REPLACE INTO big_deal_summary (trade_date, symbol, name) VALUES (?,?,?)",
-                (today, symbol, name)
-            )
-            conn.commit()
-            failed += 1
-            time.sleep(INTERVAL)
-            continue
+        for i, future in enumerate(as_completed(futures)):
+            result = future.result()
+            if result.get("ok"):
+                ok += 1
+                batch.append(result)
+                if result.get("has_big"):
+                    has_big += 1
+            else:
+                failed += 1
+                # 写入空记录标记已扫描
+                batch.append({
+                    "symbol": result["symbol"],
+                    "name": result["name"],
+                    "big_buy_count": 0, "big_buy_lots": 0, "big_buy_amount": 0,
+                    "total_lots": 0, "total_amount": 0,
+                })
 
-        result = calc_big_buys(df)
+            # 批量写入
+            if len(batch) >= BATCH_WRITE:
+                _batch_write(batch, today)
+                batch = []
 
-        conn.execute(
-            """INSERT OR REPLACE INTO big_deal_summary
-               (trade_date, symbol, name,
-                big_buy_count, big_buy_lots, big_buy_amount,
-                total_lots, total_amount)
-               VALUES (?,?,?, ?,?,?, ?,?)""",
-            (today, symbol, name,
-             result["big_buy_count"], result["big_buy_lots"], result["big_buy_amount"],
-             result["total_lots"], result["total_amount"])
-        )
-        conn.commit()
-        ok += 1
-        if result["big_buy_count"] > 0:
-            has_big += 1
+            if (i + 1) % 200 == 0:
+                pct = (i + 1) / len(stocks) * 100
+                logger.info(f"  {pct:.0f}% ({i+1}/{len(stocks)}): OK={ok}, 有大笔={has_big}, 失败={failed}")
 
-        if (i + 1) % 200 == 0:
-            pct = (i + 1) / len(stocks) * 100
-            logger.info(f"  {pct:.0f}% ({i+1}/{len(stocks)}): OK={ok}, 有大笔={has_big}, 跳过={skipped}, 失败={failed}")
-
-        time.sleep(INTERVAL)
-
-    conn.close()
+        # 写入剩余
+        if batch:
+            _batch_write(batch, today)
 
     # 汇总
     conn = sqlite3.connect(DB)
@@ -248,8 +312,9 @@ def main():
     ).fetchone()
     conn.close()
 
+    total = ok + failed + len(existing_set)
     logger.info(f"✅ big_deal_summary 完成:")
-    logger.info(f"  扫描 {ok + skipped + failed} 只, 成功 {ok}, 无成交 {failed}, 跳过 {skipped}")
+    logger.info(f"  扫描 {total} 只, 成功 {ok}, 无成交 {failed}, 已跳过 {len(existing_set)}")
     logger.info(f"  有大笔买入股票: {has_big}")
     if row and row[0]:
         logger.info(f"  大笔买入总次数: {row[0]:.0f}")
