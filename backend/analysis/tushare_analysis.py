@@ -17,8 +17,14 @@ from typing import Optional
 from loguru import logger
 from analysis.fundamentals import get_fundamental_summary
 
-import tushare as ts
 import os
+
+try:
+    import tushare as ts
+    TUSHARE_AVAILABLE = True
+except ImportError:
+    ts = None
+    TUSHARE_AVAILABLE = False
 
 TUSHARE_TOKEN = os.environ.get("TUSHARE_TOKEN")
 _pro = None
@@ -27,6 +33,9 @@ _pro = None
 def _get_pro():
     global _pro
     if _pro is None:
+        if not TUSHARE_AVAILABLE:
+            logger.warning("Tushare 未安装，跳过")
+            return None
         if not TUSHARE_TOKEN:
             logger.warning("TUSHARE_TOKEN 未设置")
             return None
