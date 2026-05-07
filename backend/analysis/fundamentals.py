@@ -23,6 +23,8 @@ def get_fundamental_summary(symbol: str, use_cache: bool = True) -> Optional[dic
       流通市值  2.22970e+11
       行业            银行Ⅱ
       上市时间       19910403
+
+    当 东方财富 接口不可用时，自动 fallback 到 stock_info_a_code_name 获取名称。
     """
     if use_cache:
         cached = get_fundamentals(symbol, "summary")
@@ -31,7 +33,22 @@ def get_fundamental_summary(symbol: str, use_cache: bool = True) -> Optional[dic
 
     info = akshare_fetcher.get_individual_info(symbol)
     if not info:
-        return None
+        # fallback: 从股票列表获取名称
+        name = _get_name_from_list(symbol)
+        if not name:
+            return None
+        summary = {
+            "symbol": symbol,
+            "name": name,
+            "market_cap": None,
+            "circulating_market_cap": None,
+            "industry": "",
+            "listing_date": "",
+            "total_shares": None,
+            "circulating_shares": None,
+        }
+        save_fundamentals(symbol, "summary", summary)
+        return summary
 
     summary = {
         "symbol": symbol,
@@ -46,6 +63,25 @@ def get_fundamental_summary(symbol: str, use_cache: bool = True) -> Optional[dic
 
     save_fundamentals(symbol, "summary", summary)
     return summary
+
+
+# 缓存全量股票名称映射，避免重复请求
+_STOCK_NAME_CACHE = None
+
+
+def _get_name_from_list(symbol: str) -> Optional[str]:
+    """从 AKShare stock_info_a_code_name 获取股票名称（fallback）"""
+    global _STOCK_NAME_CACHE
+    if _STOCK_NAME_CACHE is None:
+        try:
+            import akshare as ak
+            import pandas as pd
+            df = ak.stock_info_a_code_name()
+            if df is not None and not df.empty:
+                _STOCK_NAME_CACHE = dict(zip(df["code"].astype(str), df["name"]))
+        except Exception:
+            _STOCK_NAME_CACHE = {}
+    return _STOCK_NAME_CACHE.get(symbol)
 
 
 def _parse_float(val) -> Optional[float]:

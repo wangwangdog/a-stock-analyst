@@ -314,9 +314,15 @@ def main():
     logger.info(f"🚀 开始增量数据更新（30交易日）...")
     logger.info(f"  数据源: baostock={'✅' if BAOSTOCK_OK else '❌'}  akshare={'✅' if AKSHARE_OK else '❌'}")
 
-    end_date = datetime.now().strftime("%Y%m%d")
-    start_date = (datetime.now() - timedelta(days=FETCH_DAYS_DAILY)).strftime("%Y%m%d")
-    logger.info(f"  时间范围: {start_date} ~ {end_date}")
+    now = datetime.now()
+    # 盘前/盘中（< 17:00）不请求今日数据，统一用昨天
+    if now.hour < 17:
+        end = now - timedelta(days=1)
+    else:
+        end = now
+    end_date = end.strftime("%Y%m%d")
+    start_date = (end - timedelta(days=FETCH_DAYS_DAILY)).strftime("%Y%m%d")
+    logger.info(f"  时间范围: {start_date} ~ {end_date}  (当前{now.hour}:{now.minute:02d}, 使用日期: {end_date})")
 
     stocks = get_all_stocks()
     if stocks.empty:
