@@ -1258,35 +1258,24 @@ function renderMainIndicators(lw) {
     }
   }
 
-  // ═══ 画出最近7日最低到最高点的连线(斜线) ═══
-  if (klineData.value.length >= 3) {
-    const last7 = klineData.value.slice(-7)
-    let highest = -Infinity
-    let lowest = Infinity
-    let highTime = null
-    let lowTime = null
-    last7.forEach(d => {
-      const h = d.high || d.最高 || 0
-      const l = d.low || d.最低 || 0
-      const t = makeTime(d)
-      if (h > highest) { highest = h; highTime = t }
-      if (l < lowest) { lowest = l; lowTime = t }
-    })
-    
-    if (highTime && lowTime && highest > -Infinity && lowest < Infinity && highTime !== lowTime) {
-      // 确保时间按先后顺序
-      const t1 = highTime < lowTime ? highTime : lowTime
-      const v1 = highTime < lowTime ? highest : lowest
-      const t2 = highTime > lowTime ? highTime : lowTime
-      const v2 = highTime > lowTime ? highest : lowest
+  // ═══ 画出最近20个交易日的首尾收盘价连线(斜线) ═══
+  if (klineData.value.length >= 20) {
+    const last20 = klineData.value.slice(-20)
+    const first = last20[0]
+    const last = last20[last20.length - 1]
+    const t1 = makeTime(first)
+    const t2 = makeTime(last)
+    const v1 = first.close || 0
+    const v2 = last.close || 0
 
+    if (t1 && t2 && v1 && v2 && t1 !== t2) {
       const diagLine = mainChart.addSeries(LineSeries, {
-        color: '#000000',
+        color: 'rgba(0,0,0,0.35)',
         lineWidth: 2,
         lineStyle: 0,  // 实线
-        lastValueVisible: true,
+        lastValueVisible: false,
         priceLineVisible: false,
-        crosshairMarkerVisible: true,
+        crosshairMarkerVisible: false,
       })
       diagLine.setData([
         { time: t1, value: v1 },
