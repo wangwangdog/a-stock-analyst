@@ -171,5 +171,58 @@ def main():
         print('今日无大笔买入数据，跳过入库')
 
 
+    # ---------- 5. 有大买盘 → big_buy_summary 表 ----------
+    print('\n--- 提取有大买盘数据 → big_buy_summary ---')
+    try:
+        df_big = ak.stock_changes_em(symbol='有大买盘')
+    except Exception as e:
+        print(f'❌ 获取有大买盘失败: {e}')
+        df_big = None
+
+    if df_big is not None and not df_big.empty:
+        SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+        DB = os.path.join(SCRIPT_DIR, '..', 'data', 'stock_cache.db')
+        import sqlite3
+        conn = sqlite3.connect(DB)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS big_buy_summary (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_date TEXT,
+                symbol TEXT,
+                name TEXT,
+                time TEXT,
+                qty REAL,
+                price REAL,
+                change REAL,
+                amount REAL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bbs_date ON big_buy_summary(trade_date)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bbs_symbol ON big_buy_summary(symbol)")
+
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        inserted = 0
+        for _, row in df_big.iterrows():
+            try:
+                info = str(row['相关信息']).strip()
+                parts = [p.strip() for p in info.split(',')]
+                if len(parts) < 4:
+                    continue
+                conn.execute(
+                    "INSERT INTO big_buy_summary (trade_date, symbol, name, time, qty, price, change, amount) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (today_str, str(row['代码']), str(row['名称']), str(row['时间']),
+                     float(parts[0]), float(parts[1]), float(parts[2]), float(parts[3]))
+                )
+                inserted += 1
+            except (ValueError, KeyError):
+                continue
+        conn.commit()
+        conn.close()
+        print(f'✅ big_buy_summary: 写入 {inserted} 条有大买盘记录')
+    else:
+        print('今日无有大买盘数据')
+
+
 if __name__ == "__main__":
     main()
