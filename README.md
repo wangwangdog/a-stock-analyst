@@ -456,6 +456,23 @@ tailscale funnel reset
 | calendar_date | TEXT | 日历日期（YYYY-MM-DD） |
 | is_trading_day | INTEGER | 是否交易日（1=是，0=否） |
 
+
+#### all_stcok_daydeal — 全市场非小单逐笔成交
+**数据来源：** akShare 逐笔成交（stock_zh_a_tick_tx_js），与 big_deal_summary 同时采集  
+**触发时间：** 交易日 15:05（随 big_deal_collect.py）  
+**小单排除规则：** 5元↓/<5000手、5~10/<3000、10~50/<2000、50~100/<500、100~500/<200、500↑/<50手视为小单不记入
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER | 自增ID |
+| trade_date | TEXT | 交易日期 |
+| symbol | TEXT | 股票代码 |
+| time | TEXT | 发生时间（HH:MM:SS） |
+| price | REAL | 成交价格（元） |
+| qty | REAL | 成交量（手） |
+| amount | REAL | 成交金额（元） |
+| direction | TEXT | 买卖方向（买盘/卖盘/中性盘） |
+
 ### 定时任务
 
 | 时间 | 任务 | 说明 |
