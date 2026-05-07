@@ -136,9 +136,9 @@ async def get_kline(
                 "high": round(float(row.get("high", 0)), 2),
                 "low": round(float(row.get("low", 0)), 2),
             }
-            if row.get("volume"):
+            if "volume" in df.columns and row.get("volume") is not None:
                 entry["volume"] = float(row["volume"])
-            if row.get("amount"):
+            if "amount" in df.columns and row.get("amount") is not None:
                 entry["amount"] = float(row["amount"])
             data_list.append(entry)
         result = {"primary": df, "status": "ok", "source": "sequoia",
