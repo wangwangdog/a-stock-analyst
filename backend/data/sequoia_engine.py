@@ -148,9 +148,11 @@ def get_daily_kline(symbol: str, start: str = None, end: str = None) -> Optional
         conn.close()
 
 
-def daily_sync() -> dict:
+def daily_sync(progress_callback=None) -> dict:
     """
     日常同步：增量拉 baostock 数据 + 跑策略 + 写 strategy_picks。
+
+    多线程并行跑策略，每完成一个通过 progress_callback 通知。
     """
     _init_picks_table()
     settings = _get_settings()
@@ -160,7 +162,9 @@ def daily_sync() -> dict:
     count = engine.sync_today_bulk()
     total_symbols = len(engine.get_local_symbols())
 
-    # 跑全部策略
+    # 跑全部策略（并行）
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     strategies = [
         (key, cls(engine, settings)) for key, cls in STRATEGY_CLASSES.items()
     ]
@@ -170,18 +174,42 @@ def daily_sync() -> dict:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM strategy_picks WHERE date=?", (today,))
 
-    for key, strategy in strategies:
+    total_strategies = len(strategies)
+    completed = 0
+
+    def _run_one(key, cls_instance):
         try:
-            selected = strategy.run()
+            selected = cls_instance.run()
+            result = {"key": key, "ok": True, "picks": len(selected), "error": None}
+            # 写入选股结果
             for rank, symbol in enumerate(selected):
                 conn.execute(
                     "INSERT INTO strategy_picks (date, strategy, symbol, rank) VALUES (?, ?, ?, ?)",
                     (today, key, symbol, rank),
                 )
                 all_picks.append((key, symbol))
+            return result
         except Exception as e:
-            import logging
-            logging.getLogger("sequoia_engine").warning(f"[{key}] 策略运行失败: {e}")
+            return {"key": key, "ok": False, "picks": 0, "error": str(e)}
+
+    with ThreadPoolExecutor(max_workers=min(total_strategies, 6)) as executor:
+        futures = {executor.submit(_run_one, key, cls): key for key, cls in strategies}
+        for future in as_completed(futures):
+            result = future.result()
+            completed += 1
+            if progress_callback:
+                progress_callback({
+                    "strategy": result["key"],
+                    "ok": result["ok"],
+                    "picks": result["picks"],
+                    "completed": completed,
+                    "total": total_strategies,
+                })
+            if not result["ok"]:
+                import logging
+                logging.getLogger("sequoia_engine").warning(
+                    f"[{result['key']}] 策略运行失败: {result['error']}"
+                )
 
     conn.commit()
     conn.close()

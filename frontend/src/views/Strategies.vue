@@ -3,7 +3,7 @@
     <van-nav-bar title="Sequoia-X 量化选股" left-arrow @click-left="$router.back()">
       <template #right>
         <van-button size="small" plain type="primary" :loading="syncing" @click="doSync">
-          {{ syncing ? '同步中...' : '📥 每日同步' }}
+          {{ syncing ? syncLabel : '📥 每日同步' }}
         </van-button>
         <van-icon name="replay" @click="loadAll" style="padding:4px;margin-left:4px" />
       </template>
@@ -269,6 +269,8 @@ const strategyPicks = ref({})
 const history = ref([])
 const selectedKey = ref(null)
 const syncing = ref(false)
+const syncLabel = ref('同步中...')
+const syncProgress = ref({})
 
 // ===== 初筛（20日涨幅，起始排名可配置）=====
 const chushaiRankStart = ref(1)
@@ -409,6 +411,7 @@ function selectStrategy(key) {
 
 async function doSync() {
   syncing.value = true
+  syncLabel.value = '📊 数据同步中...'
   const toast = showLoadingToast({ message: '🔄 同步已启动...', duration: 0 })
   try {
     const r = await fetch('/api/v1/strategy/sync', { method: 'POST' })
@@ -420,6 +423,14 @@ async function doSync() {
         try {
           const sr = await fetch('/api/v1/strategy/sync/status')
           const sd = await sr.json()
+          // 更新策略级进度
+          if (sd.progress && sd.progress.phase === 'strategy' && sd.progress.strategies) {
+            const p = sd.progress.strategies
+            syncLabel.value = `📊 ${p.strategy} (${p.completed}/${p.total})`
+            syncProgress.value = sd.progress
+          } else if (sd.progress && sd.progress.phase === 'data_sync') {
+            syncLabel.value = '📊 数据同步中...'
+          }
           if (!sd.in_progress && sd.result) {
             clearInterval(poll)
             closeToast()
@@ -430,6 +441,7 @@ async function doSync() {
               showToast({ message: `同步失败: ${sd.result.error}`, type: 'fail' })
             }
             syncing.value = false
+            syncLabel.value = '同步中...'
             loadAll()
           }
         } catch {
@@ -437,25 +449,29 @@ async function doSync() {
           closeToast()
           showToast({ message: '同步超时', type: 'fail' })
           syncing.value = false
+          syncLabel.value = '同步中...'
           loadAll()
         }
-      }, 3000)
+      }, 2000)
     } else if (data.status === 'ok') {
       closeToast()
       const msg = `✅ 写入 ${data.sync_count} 条数据\n已选 ${data.total_picks} 只股票`
       showDialog({ title: '同步完成', message: msg })
       syncing.value = false
+      syncLabel.value = '同步中...'
       loadAll()
     } else {
       closeToast()
       showToast({ message: `同步失败: ${data.error}`, type: 'fail' })
       syncing.value = false
+      syncLabel.value = '同步中...'
       loadAll()
     }
   } catch {
     closeToast()
     showToast({ message: '请求失败', type: 'fail' })
     syncing.value = false
+    syncLabel.value = '同步中...'
     loadAll()
   }
 }

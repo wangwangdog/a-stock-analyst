@@ -22,6 +22,7 @@ router = APIRouter(prefix="/api/v1/strategy", tags=["量化选股"])
 # 全局同步锁 + 状态跟踪
 _sync_in_progress = False
 _sync_result = None
+_sync_progress = {}  # 策略级进度
 _sync_executor = ThreadPoolExecutor(max_workers=1)
 
 
@@ -54,11 +55,12 @@ async def strategy_list():
 
 @router.get("/sync/status")
 async def get_sync_status():
-    """获取同步状态"""
-    global _sync_in_progress, _sync_result
+    """获取同步状态（含策略级进度）"""
+    global _sync_in_progress, _sync_result, _sync_progress
     return {
         "in_progress": _sync_in_progress,
         "result": _sync_result,
+        "progress": _sync_progress,
     }
 
 
@@ -69,18 +71,34 @@ async def trigger_sync():
     if _sync_in_progress:
         return {"status": "in_progress", "message": "同步正在进行中..."}
 
+    global _sync_in_progress, _sync_result, _sync_progress
+    if _sync_in_progress:
+        return {"status": "in_progress", "message": "同步正在进行中..."}
+
     _sync_in_progress = True
     _sync_result = None
+    _sync_progress = {}
     logger.info("🎯 Sequoia-X 日常同步启动（后台线程）")
 
+    def _progress_cb(info):
+        global _sync_progress
+        _sync_progress = {
+            "strategies": info,
+            "phase": "strategy",
+        }
+        logger.info(f"  [{info['strategy']}] 完成 ({info['completed']}/{info['total']}), 选股 {info['picks']} 只")
+
     def _run_sync():
-        global _sync_in_progress, _sync_result
+        global _sync_in_progress, _sync_result, _sync_progress
         try:
-            result = daily_sync()
+            _sync_progress = {"phase": "data_sync", "strategies": None}
+            result = daily_sync(progress_callback=_progress_cb)
             _sync_result = result
+            _sync_progress = {"phase": "done", "strategies": None}
             logger.info(f"✅ Sequoia-X 同步完成: {result.get('sync_count',0)}条, {result.get('total_picks',0)}只")
         except Exception as e:
             _sync_result = {"status": "error", "error": str(e)}
+            _sync_progress = {"phase": "error", "strategies": None}
             logger.error(f"❌ Sequoia-X 同步失败: {e}")
         finally:
             _sync_in_progress = False
