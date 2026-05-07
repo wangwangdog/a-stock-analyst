@@ -88,13 +88,65 @@ async def trigger_sync():
         global _sync_in_progress, _sync_result, _sync_progress
         try:
             _sync_progress = {"phase": "data_sync", "strategies": None}
-            result = daily_sync(progress_callback=_progress_cb)
+            # 数据同步加 120 秒超时，超时则只跑策略
+            result = None
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(daily_sync, progress_callback=_progress_cb)
+                try:
+                    result = fut.result(timeout=120)
+                except concurrent.futures.TimeoutError:
+                    logger.warning("数据同步超时（120s），跳过数据同步直接跑策略")
+                    _sync_progress = {"phase": "strategy_only", "strategies": None}
+                    # 直接跑策略
+                    from data.sequoia_engine import _get_engine, _get_settings, STRATEGY_CLASSES, _init_picks_table
+                    from datetime import date
+                    _init_picks_table()
+                    engine = _get_engine()
+                    settings = _get_settings()
+                    today = date.today().strftime("%Y-%m-%d")
+                    strategies = [(key, cls(engine, settings)) for key, cls in STRATEGY_CLASSES.items()]
+                    import sqlite3
+                    DB = 'backend/data/stock_cache.db'
+                    conn = sqlite3.connect(DB)
+                    conn.execute("DELETE FROM strategy_picks WHERE date=?", (today,))
+                    all_picks = []
+                    for key, strategy in strategies:
+                        try:
+                            selected = strategy.run()
+                            for rank, symbol in enumerate(selected):
+                                conn.execute(
+                                    "INSERT INTO strategy_picks (date, strategy, symbol, rank) VALUES (?, ?, ?, ?)",
+                                    (today, key, symbol, rank),
+                                )
+                                all_picks.append((key, symbol))
+                            _progress_cb({"strategy": key, "ok": True, "picks": len(selected),
+                                          "completed": len(all_picks), "total": len(strategies)})
+                        except Exception as e2:
+                            _progress_cb({"strategy": key, "ok": False, "picks": 0,
+                                          "completed": len(all_picks), "total": len(strategies)})
+                            logger.warning(f"[{key}] 策略运行失败: {e2}")
+                    conn.commit()
+                    conn.close()
+                    picks_by_strategy = {}
+                    for k, s in all_picks:
+                        picks_by_strategy.setdefault(k, []).append(s)
+                    result = {
+                        "status": "ok",
+                        "sync_count": 0,
+                        "total_symbols": 0,
+                        "picks": {k: len(v) for k, v in picks_by_strategy.items()},
+                        "total_picks": len(all_picks),
+                        "date": today,
+                    }
+
             _sync_result = result
             _sync_progress = {"phase": "done", "strategies": None}
-            logger.info(f"✅ Sequoia-X 同步完成: {result.get('sync_count',0)}条, {result.get('total_picks',0)}只")
+            logger.info(f"✅ Sequoia-X 同步完成: {result.get('total_picks',0)}只")
         except Exception as e:
             _sync_result = {"status": "error", "error": str(e)}
             _sync_progress = {"phase": "error", "strategies": None}
+            logger.error(f"❌ Sequoia-X 同步失败: {e}")
             logger.error(f"❌ Sequoia-X 同步失败: {e}")
         finally:
             _sync_in_progress = False
