@@ -59,6 +59,18 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_kline_symbol_date ON kline_cache(symbol, trade_date);
             CREATE INDEX IF NOT EXISTS idx_check_log_date ON kline_check_log(checked_at);
+
+            CREATE TABLE IF NOT EXISTS stock_cr_indicator (
+                symbol TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                cr REAL,
+                cr_ma1 REAL,
+                cr_ma2 REAL,
+                cr_ma3 REAL,
+                PRIMARY KEY (symbol, trade_date)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cr_symbol_date ON stock_cr_indicator(symbol, trade_date);
         """)
         conn.commit()
     finally:
@@ -153,10 +165,10 @@ def get_kline(symbol: str, source: str, start_date: str = None, end_date: str = 
             sql += " AND period=?"
             params.append(period)
         if start_date:
-            sql += " AND trade_date>=?"
+            sql += " AND DATE(trade_date)>=?"
             params.append(start_date)
         if end_date:
-            sql += " AND trade_date<=?"
+            sql += " AND DATE(trade_date)<=?"
             params.append(end_date)
         sql += " ORDER BY trade_date ASC"
         df = pd.read_sql(sql, conn, params=params)

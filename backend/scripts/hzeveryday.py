@@ -33,7 +33,7 @@ def _is_trading_day() -> bool:
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DB_PATH = str(SCRIPT_DIR.parent.parent / "backend" / "data" / "stock_cache.db")
+DB_PATH = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
 
 
 def migrate_and_cleanup():

@@ -23,6 +23,9 @@ from routes.ai import router as ai_router
 from routes.favorites import router as favorites_router
 from routes.auth import router as auth_router
 from routes.strategy import router as strategy_router
+from routes.chanlun import router as chanlun_router
+from routes.signals import router as signals_router
+from routes.backtest import router as backtest_router
 
 app = FastAPI(
     title="A-Stock Analyst",
@@ -45,6 +48,9 @@ app.include_router(ai_router)
 app.include_router(favorites_router)
 app.include_router(auth_router)
 app.include_router(strategy_router)
+app.include_router(chanlun_router)
+app.include_router(signals_router)
+app.include_router(backtest_router)
 
 # === 启动时数据检查 ===
 @app.on_event("startup")
@@ -54,7 +60,7 @@ async def startup_check():
         from data.cache import _get_conn
         conn = _get_conn()
         cursor = conn.execute(
-            "SELECT MAX(trade_date) FROM kline_cache WHERE source='akshare' AND period='daily'"
+            "SELECT MAX(trade_date) FROM kline_cache WHERE source='baostock' AND period='daily'"
         )
         row = cursor.fetchone()
         conn.close()

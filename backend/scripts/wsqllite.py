@@ -39,7 +39,7 @@ if not _is_trading_day():
 # ==================== 配置 ====================
 SCRIPT_DIR = Path(__file__).resolve().parent
 EXCEL_DIR = str(SCRIPT_DIR / "excel_files")  # Excel 文件目录
-DB_PATH = str(SCRIPT_DIR.parent.parent / "backend" / "data" / "stock_cache.db")  # SQLite 数据库文件
+DB_PATH = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")  # chanlun-pro 统一数据库
 TABLE_NAME = "stock_records"
 
 # 文件名中日期提取的正则表达式

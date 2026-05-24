@@ -4,8 +4,8 @@ from pathlib import Path
 # 项目根目录
 BASE_DIR = Path(__file__).resolve().parent
 
-# 数据库
-DB_PATH = BASE_DIR / "data" / "stock_cache.db"
+# 数据库（合并到 chanlun-pro 的统一数据库）
+DB_PATH = Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite"
 
 # 数据源优先级: akshare > baostock
 DATA_SOURCES = ["akshare", "baostock"]

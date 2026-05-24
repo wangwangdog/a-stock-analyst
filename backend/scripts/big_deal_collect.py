@@ -21,7 +21,7 @@ import sqlite3
 import akshare as ak
 from loguru import logger
 
-DB = str(Path(__file__).resolve().parent.parent / "data" / "stock_cache.db")
+DB = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
 INTERVAL = 0.15  # 每只股票间隔（秒）
 OPEN_START = "09:30"  # 开盘后第一笔才算（剔除集合竞价）
 TAIL_CUT = "15:00"    # 尾盘截止时间（含，之后不计入）

@@ -95,9 +95,14 @@ class DataEngine:
     # ── 数据同步 ──
 
     def sync_today_bulk(self) -> int:
-        """多进程并行通过 baostock 拉取增量数据（后复权），写入 SQLite。"""
+        """单线程分批通过 baostock 拉取增量数据（前复权），写入 SQLite。
+        
+        注意：baostock 的多进程并发会导致 Broken pipe，故使用单线程分批。
+        """
+        import baostock as bs
+        import socket
+        socket.setdefaulttimeout(15)
         from datetime import date, timedelta
-        from multiprocessing import Pool
 
         today_str = date.today().strftime("%Y-%m-%d")
 
@@ -123,17 +128,44 @@ class DataEngine:
             logger.info("所有股票已是最新，无需更新")
             return 0
 
-        logger.info(f"需要更新 {len(tasks)} 只股票，启动多进程并行拉取...")
+        logger.info(f"需要更新 {len(tasks)} 只股票，单线程分批拉取...")
 
-        n_workers = min(8, len(tasks))
-        chunks = [tasks[i::n_workers] for i in range(n_workers)]
-
-        with Pool(n_workers) as pool:
-            batch_results = pool.map(_bs_fetch_batch, chunks)
+        lg = bs.login()
+        if lg.error_code != "0":
+            logger.warning(f"baostock 登录失败: {lg.error_msg}")
+            return 0
 
         all_rows = []
-        for batch in batch_results:
-            all_rows.extend(batch)
+        batch_size = 500
+        for i in range(0, len(tasks), batch_size):
+            chunk = tasks[i:i+batch_size]
+            for symbol, bs_code, start, end in chunk:
+                try:
+                    rs = bs.query_history_k_data_plus(
+                        bs_code,
+                        "date,open,high,low,close,volume,amount",
+                        start_date=start, end_date=end,
+                        frequency="d", adjustflag="2",
+                    )
+                    if rs.error_code != "0":
+                        continue
+                    while rs.next():
+                        row = rs.get_row_data()
+                        date_val = row[0]
+                        close = float(row[4]) if row[4] else 0
+                        if close > 0:
+                            all_rows.append([
+                                symbol, date_val,
+                                float(row[1] or 0), float(row[2] or 0),
+                                float(row[3] or 0), close,
+                                float(row[5] or 0), float(row[6] or 0),
+                            ])
+                except Exception:
+                    continue
+            if (i // batch_size + 1) % 5 == 0 or (i + batch_size) >= len(tasks):
+                logger.info(f"  sync: {min(i+batch_size, len(tasks))}/{len(tasks)}, found={len(all_rows)}")
+
+        bs.logout()
 
         if not all_rows:
             logger.info("无新数据（可能非交易日）")
@@ -158,6 +190,8 @@ class DataEngine:
     def backfill(self, symbols: list[str]) -> None:
         """通过 baostock 批量回填历史日 K 线数据（后复权）。已入库的自动 skip。"""
         import baostock as bs
+        import socket
+        socket.setdefaulttimeout(15)
         from datetime import date, timedelta
 
         today_str = date.today().strftime("%Y-%m-%d")

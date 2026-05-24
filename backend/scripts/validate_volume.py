@@ -15,7 +15,7 @@ import sqlite3
 import baostock as bs
 from loguru import logger
 
-DB = Path(__file__).resolve().parent.parent / "data" / "stock_cache.db"
+DB = Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite"
 ADJUST_FLAG = "1"  # 后复权，与 sequoia 引擎一致
 
 

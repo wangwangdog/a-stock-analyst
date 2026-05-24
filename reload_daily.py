@@ -14,7 +14,7 @@ sys.path.insert(0, "backend")
 import baostock as bs
 import pandas as pd
 
-DB = "backend/data/stock_cache.db"
+DB = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
 ADJUST = "2"  # 前复权
 FETCH_START = "2024-01-01"
 FETCH_END = datetime.now().strftime("%Y-%m-%d")

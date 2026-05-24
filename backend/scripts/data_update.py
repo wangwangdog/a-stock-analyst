@@ -8,6 +8,7 @@
 import sys
 import time
 import warnings
+import socket
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -93,15 +94,34 @@ def get_all_stocks_baostock() -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def get_all_stocks_local() -> pd.DataFrame:
+    """从本地 all_stock_info 表获取股票列表（离线兜底）"""
+    try:
+        conn = _get_conn()
+        cursor = conn.execute("SELECT symbol, name FROM all_stock_info ORDER BY symbol")
+        rows = cursor.fetchall()
+        conn.close()
+        if rows:
+            df = pd.DataFrame(rows, columns=["code", "name"])
+            logger.info(f"  从本地 all_stock_info 获取股票列表: {len(df)} 只")
+            return df
+    except Exception as e:
+        logger.warning(f"[Local] 读取 all_stock_info 失败: {e}")
+    return pd.DataFrame()
+
+
 def get_all_stocks() -> pd.DataFrame:
-    """综合获取股票列表，AKShare 优先"""
+    """综合获取股票列表，AKShare 优先，本地兜底"""
     df = get_all_stocks_akshare()
     if not df.empty:
         return df
     df = get_all_stocks_baostock()
     if not df.empty:
         return df
-    logger.error("无法获取股票列表（AKShare 和 Baostock 均失败）")
+    df = get_all_stocks_local()
+    if not df.empty:
+        return df
+    logger.error("无法获取股票列表（AKShare、Baostock、本地均失败）")
     return pd.DataFrame()
 
 
@@ -109,24 +129,25 @@ def get_all_stocks() -> pd.DataFrame:
 # 缓存查询
 # ──────────────────────────────────────────
 def get_cached_latest(symbol: str, period_key: str) -> str | None:
-    """查缓存中该股票+周期的最近日期，返回 'YYYY-MM-DD' 或 None"""
+    """查缓存中该股票+周期的最近日期，返回 'YYYY-MM-DD' 或 None
+    - 日线（daily）→ 查 baostock source
+    - 分钟线（15min/30min/60min）→ 查 akshare source
+    """
+    if period_key == "daily":
+        source = "baostock"
+    elif period_key.endswith("min"):
+        source = "akshare"
+    else:
+        return None
     conn = _get_conn()
     try:
         cursor = conn.execute(
-            "SELECT MAX(trade_date) FROM kline_cache WHERE symbol=? AND source='akshare' AND period=?",
-            (symbol, period_key)
+            "SELECT MAX(trade_date) FROM kline_cache WHERE symbol=? AND source=? AND period=?",
+            (symbol, source, period_key)
         )
         row = cursor.fetchone()
         if row and row[0]:
             return row[0][:10]
-        # 也查 baostock 源
-        cursor2 = conn.execute(
-            "SELECT MAX(trade_date) FROM kline_cache WHERE symbol=? AND source='baostock' AND period=?",
-            (symbol, period_key)
-        )
-        row2 = cursor2.fetchone()
-        if row2 and row2[0]:
-            return row2[0][:10]
         return None
     finally:
         conn.close()
@@ -162,7 +183,9 @@ def _bs_disconnect():
 
 
 def fetch_daily_baostock(symbol: str, start_date: str, end_date: str) -> pd.DataFrame | None:
-    """通过 baostock 获取日线数据（使用已有连接）"""
+    """通过 baostock 获取日线数据（使用已有连接）
+    返回: DataFrame=成功, None=查询失败
+    """
     if not _ensure_bs_connected():
         return None
     # baostock 代码格式: sh.600000, sz.000001
@@ -226,46 +249,61 @@ def update_daily(symbol: str, start_date: str, end_date: str) -> bool:
         return True
 
     df = fetch_daily_baostock(symbol, sd_str, end_dt)
-    if df is not None and not df.empty:
+    if df is not None:
+        if df.empty:
+            return True  # 无新数据（周末/节假日），视为最新
         if latest:
             df = df[df["trade_date"] > latest]
         if not df.empty:
             save_kline(symbol, "baostock", df, period="daily")
         return None  # 新增成功
 
-    # baostock 失败，尝试 AKShare（可能被限流）
-    if AKSHARE_OK:
-        try:
-            time.sleep(INTER_STOCK)
-            fetch_start = sd_str.replace("-", "")
-            df = ak.stock_zh_a_hist(
-                symbol=symbol, period="daily",
-                start_date=fetch_start, end_date=end_date,
-                adjust="qfq"
-            )
-            if df is not None and not df.empty:
-                df = df.rename(columns={
-                    "日期": "trade_date", "开盘": "open", "收盘": "close",
-                    "最高": "high", "最低": "low",
-                    "成交量": "volume", "成交额": "amount",
-                })
-                df["trade_date"] = df["trade_date"].astype(str).str[:10]
-                if latest:
-                    df = df[df["trade_date"] > latest]
-                if not df.empty:
-                    save_kline(symbol, "akshare", df, period="daily")
-            return None  # 新增成功
-        except Exception as e:
-            logger.debug(f"[AKShare] {symbol} 日线更新失败: {e}")
-            return False
-    return False  # 两个源都不可用
+    # baostock 无数据 → 跳过（akshare 日线不再写入 kline_cache，下次 baostock 重试即可）
+    return True
+
+
+def _minute_freq(freq: str) -> str:
+    """分钟周期映射: '15'/'30'/'60' → baostock frequency"""
+    return freq  # baostock 直接使用 '15', '30', '60'
+
+
+def fetch_minute_baostock(symbol: str, period: str, start_date: str, end_date: str) -> pd.DataFrame | None:
+    """通过 baostock 获取分钟线数据"""
+    if not BAOSTOCK_OK:
+        return None
+    if not _ensure_bs_connected():
+        return None
+    prefix = "sh" if symbol.startswith("6") or symbol.startswith("68") else "sz"
+    bs_code = f"{prefix}.{symbol}"
+    try:
+        rs = bs.query_history_k_data_plus(
+            bs_code,
+            "date,time,open,high,low,close,volume,amount",
+            start_date=start_date[:4] + "-" + start_date[4:6] + "-" + start_date[6:],
+            end_date=end_date[:4] + "-" + end_date[4:6] + "-" + end_date[6:],
+            frequency=period,
+            adjustflag="2",
+        )
+        data = []
+        while (rs.error_code == "0") & rs.next():
+            data.append(rs.get_row_data())
+        if not data:
+            return None
+        df = pd.DataFrame(data, columns=["date", "time", "open", "high", "low", "close", "volume", "amount"])
+        # 合并日期+时间为 trade_date: "2026-05-22 09:45:00"
+        df["trade_date"] = df.apply(
+            lambda r: r["date"] + " " + r["time"][8:10] + ":" + r["time"][10:12] + ":00",
+            axis=1
+        )
+        for col in ["open", "high", "low", "close", "volume", "amount"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df
+    except Exception:
+        return None
 
 
 def update_minute(symbol: str, period: str, start_date: str, end_date: str) -> bool:
-    """增量更新分钟线（仅 AKShare）"""
-    if not AKSHARE_OK:
-        return True  # 无 AKShare，跳过分钟线
-
+    """增量更新分钟线（baostock 优先，AKShare 降级）"""
     period_key = f"{period}min"
     latest = get_cached_latest(symbol, period_key)
     end_dt = _fmt_date(end_date)
@@ -281,37 +319,63 @@ def update_minute(symbol: str, period: str, start_date: str, end_date: str) -> b
     else:
         fetch_start = start_date
 
-    try:
-        time.sleep(INTER_STOCK)
-        df = ak.stock_zh_a_hist_min_em(
-            symbol=symbol, period=period,
-            start_date=fetch_start, end_date=end_date
-        )
-        if df is not None and not df.empty:
-            df = df.rename(columns={
-                "时间": "trade_date", "开盘": "open", "收盘": "close",
-                "最高": "high", "最低": "low",
-                "成交量": "volume", "成交额": "amount",
-            })
-            df["trade_date"] = df["trade_date"].astype(str)
-            if latest:
-                df = df[df["trade_date"] > latest]
-            if not df.empty:
-                save_kline(symbol, "akshare", df, period=period_key)
-        return True
-    except Exception as e:
-        logger.debug(f"[AKShare] {symbol} {period}min 增量更新失败: {e}")
-        return False  # 分钟线失败不影响整体
+    # 优先 baostock
+    if BAOSTOCK_OK:
+        try:
+            time.sleep(INTER_STOCK)
+            df = fetch_minute_baostock(symbol, period, fetch_start, end_date)
+            if df is not None and not df.empty:
+                if latest:
+                    df = df[df["trade_date"] > latest]
+                if not df.empty:
+                    save_kline(symbol, "baostock", df, period=period_key)
+                return True
+        except Exception:
+            pass
+
+    # 降级到 AKShare
+    if AKSHARE_OK:
+        try:
+            time.sleep(INTER_STOCK)
+            df = ak.stock_zh_a_hist_min_em(
+                symbol=symbol, period=period,
+                start_date=fetch_start, end_date=end_date
+            )
+            if df is not None and not df.empty:
+                df = df.rename(columns={
+                    "时间": "trade_date", "开盘": "open", "收盘": "close",
+                    "最高": "high", "最低": "low",
+                    "成交量": "volume", "成交额": "amount",
+                })
+                df["trade_date"] = df["trade_date"].astype(str)
+                if latest:
+                    df = df[df["trade_date"] > latest]
+                if not df.empty:
+                    save_kline(symbol, "akshare", df, period=period_key)
+            return True
+        except Exception as e:
+            logger.debug(f"[AKShare] {symbol} {period}min 增量更新失败: {e}")
+
+    return False  # 分钟线全部失败
 
 
 # ──────────────────────────────────────────
 # 主流程
 # ──────────────────────────────────────────
-def main():
+def main(mode="all"):
+    """
+    增量数据更新
+    mode: "daily" → 只更新日线
+          "minute" → 只更新分钟线
+          "all" → 日线+分钟线（默认）
+    """
+    # 设置 socket 超时（60s），baostock 偶有慢查询
+    socket.setdefaulttimeout(60)
+
     logger.remove()
     logger.add(sys.stdout, format="<green>{time:HH:mm:ss}</green> | {message}")
 
-    logger.info(f"🚀 开始增量数据更新（30交易日）...")
+    logger.info(f"🚀 开始增量数据更新（mode={mode}, 30交易日）...")
     logger.info(f"  数据源: baostock={'✅' if BAOSTOCK_OK else '❌'}  akshare={'✅' if AKSHARE_OK else '❌'}")
 
     now = datetime.now()
@@ -320,6 +384,9 @@ def main():
         end = now - timedelta(days=1)
     else:
         end = now
+    # 如果 end 落在周末，回退到上周五
+    while end.weekday() >= 5:
+        end -= timedelta(days=1)
     end_date = end.strftime("%Y%m%d")
     start_date = (end - timedelta(days=FETCH_DAYS_DAILY)).strftime("%Y%m%d")
     logger.info(f"  时间范围: {start_date} ~ {end_date}  (当前{now.hour}:{now.minute:02d}, 使用日期: {end_date})")
@@ -333,48 +400,76 @@ def main():
     logger.info(f"  共 {total} 只股票")
 
     # --- 日线（baostock + AKShare fallback）---
-    logger.info("--- 日线更新 ---")
-    d_ok = d_skip = d_fail = 0
-    for idx, (_, row) in enumerate(stocks.iterrows()):
-        code = row["code"]
-        ok = update_daily(code, start_date, end_date)
-        if ok is True:
-            d_skip += 1
-        elif ok is None:
-            d_ok += 1
-        else:
-            d_fail += 1
-            if d_fail > 20:
-                # 连续失败太多，可能 API 挂了，直接跳过后续
-                logger.warning(f"  连续失败 {d_fail} 次，跳过剩余日线更新")
-                break
-        if (idx + 1) % BATCH_SIZE == 0:
-            logger.info(f"  日线: {idx+1}/{total} (最新{d_skip}, 新增{d_ok}, 失败{d_fail}), 休息 {INTER_BATCH}s...")
-            time.sleep(INTER_BATCH)
-    logger.info(f"  日线完成: 最新{d_skip}, 新增{d_ok}, 失败{d_fail}/{total}")
+    if mode in ("all", "daily"):
+        logger.info("--- 日线更新 ---")
+        d_ok = d_skip = d_fail = d_consec = 0
+        for idx, (_, row) in enumerate(stocks.iterrows()):
+            code = row["code"]
+            ok = update_daily(code, start_date, end_date)
+            if ok is True:
+                d_skip += 1
+                d_consec = 0
+            elif ok is None:
+                d_ok += 1
+                d_consec = 0
+            else:
+                d_fail += 1
+                d_consec += 1
+                if d_consec >= 200:
+                    # 连续失败太多，可能 API 挂了，直接跳过后续
+                    logger.warning(f"  连续失败 {d_consec} 次，跳过剩余日线更新")
+                    break
+            if (idx + 1) % BATCH_SIZE == 0:
+                logger.info(f"  日线: {idx+1}/{total} (最新{d_skip}, 新增{d_ok}, 失败{d_fail}), 休息 {INTER_BATCH}s...")
+                time.sleep(INTER_BATCH)
+        logger.info(f"  日线完成: 最新{d_skip}, 新增{d_ok}, 失败{d_fail}/{total}")
+    else:
+        logger.info("--- 跳过日线更新 ---")
 
     # --- 分钟线（仅 AKShare）---
-    if AKSHARE_OK:
-        for minute_period in ("15", "30", "60"):
-            logger.info(f"--- {minute_period}min 分钟线更新 ---")
-            m_skip = m_ok = m_fail = 0
-            for idx, (_, row) in enumerate(stocks.iterrows()):
-                code = row["code"]
-                ok = update_minute(code, minute_period, start_date, end_date)
-                if ok is True:
-                    m_skip += 1
-                else:
-                    m_fail += 1
-                if (idx + 1) % BATCH_SIZE == 0:
-                    logger.info(f"  {minute_period}min: {idx+1}/{total} (最新{m_skip}, 失败{m_fail}), 休息 {INTER_BATCH}s...")
-                    time.sleep(INTER_BATCH)
-            logger.info(f"  {minute_period}min 完成: 最新{m_skip}, 失败{m_fail}/{total}")
+    if mode in ("all", "minute"):
+        if AKSHARE_OK:
+            for minute_period in ("15", "30", "60"):
+                logger.info(f"--- {minute_period}min 分钟线更新 ---")
+                m_skip = m_ok = m_fail = 0
+                for idx, (_, row) in enumerate(stocks.iterrows()):
+                    code = row["code"]
+                    ok = update_minute(code, minute_period, start_date, end_date)
+                    if ok is True:
+                        m_skip += 1
+                    else:
+                        m_fail += 1
+                    if (idx + 1) % BATCH_SIZE == 0:
+                        logger.info(f"  {minute_period}min: {idx+1}/{total} (最新{m_skip}, 失败{m_fail}), 休息 {INTER_BATCH}s...")
+                        time.sleep(INTER_BATCH)
+                    if m_fail >= BATCH_SIZE:
+                        logger.warning(f"  {minute_period}min 连续失败 {m_fail} 次，跳过")
+                        break
+                logger.info(f"  {minute_period}min 完成: 最新{m_skip}, 失败{m_fail}/{total}")
+        else:
+            logger.info("--- 分钟线: AKShare 不可用，跳过 ---")
     else:
-        logger.info("--- 分钟线: AKShare 不可用，跳过 ---")
+        logger.info("--- 跳过分钟线更新 ---")
 
     _bs_disconnect()
-    logger.info(f"✅ 所有数据更新完成")
+
+    # --- CR 指标计算（仅日线更新后） ---
+    if mode in ("all", "daily"):
+        logger.info("--- CR指标计算 ---")
+        try:
+            from scripts.calc_cr_indicator import run_all
+            run_all()
+        except Exception as e:
+            logger.warning(f"⚠ CR指标计算失败: {e}")
+
+    logger.info(f"✅ 数据更新完成 (mode={mode})")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    mode = "all"
+    if "--mode" in sys.argv:
+        idx = sys.argv.index("--mode")
+        if idx + 1 < len(sys.argv):
+            mode = sys.argv[idx + 1]
+    main(mode=mode)

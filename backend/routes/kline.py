@@ -1,6 +1,7 @@
 """API 路由 - K线数据"""
 from datetime import datetime, timedelta
 from typing import Optional
+import logging
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
@@ -10,6 +11,8 @@ from data import akshare_fetcher
 from analysis.indicators import calc_all_indicators
 from analysis.fundamentals import get_fundamental_summary
 from analysis.tushare_analysis import get_tushare_analysis
+
+logger = logging.getLogger('kline_route')
 
 router = APIRouter(prefix="/api/v1", tags=["K线数据"])
 
@@ -36,45 +39,58 @@ class HealthResponse(BaseModel):
 @router.get("/kline/{symbol}")
 async def get_kline(
     symbol: str,
-    period: str = Query("daily", pattern="^(daily|weekly|monthly|15min|30min|60min)$"),
+    period: str = Query("daily", pattern="^(daily|weekly|monthly|5min|15min|30min|60min)$"),
     start_date: str = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end_date: str = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     indicators: bool = Query(True),
 ):
     """获取K线数据
 
-    支持周期: daily, weekly, monthly, 15min, 30min, 60min
-    日/周/月使用双源校验，分钟级直接从 AKShare 获取。
+    支持周期: daily, weekly, monthly, 5min, 15min, 30min, 60min
+    日/周/月使用双源校验，分钟级优先从 TDX 缓存读取，备用 AKShare。
     """
     if not end_date:
         end_date = datetime.now().strftime("%Y-%m-%d")
     if not start_date:
-        if period in ("15min", "30min", "60min"):
+        if period in ("5min", "15min", "30min", "60min"):
             # 分钟级默认取最近30天
             start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
         else:
             start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
 
-    # 分钟级K线直接从 AKShare 获取（Baostock 不支持分钟级）
-    if period in ("15min", "30min", "60min"):
-        period_map = {"15min": "15", "30min": "30", "60min": "60"}
-        minute_period = period_map[period]
-        df = akshare_fetcher.get_minute_kline(symbol, minute_period, start_date, end_date)
+    # 分钟级K线：优先从 TDX 缓存读取，备用 AKShare
+    if period in ("5min", "15min", "30min", "60min"):
+        period_map = {"5min": "5m", "15min": "15m", "30min": "30m", "60min": "60m"}
+        tdx_period = period_map[period]
+
+        # 尝试从 TDX 缓存读取
+        from data.cache import get_kline, save_kline
+        df = get_kline(symbol, "tdx", start_date=start_date, end_date=end_date, period=tdx_period)
+
+        source = "tdx"
+        if df is None or df.empty:
+            # TDX 无数据，降级到 AKShare
+            source = "akshare"
+            minute_num = tdx_period.replace("m", "")  # "5m" -> "5", "15m" -> "15"
+            df = akshare_fetcher.get_minute_kline(symbol, minute_num, start_date, end_date)
 
         if df is None or df.empty:
             return KlineResponse(
-                symbol=symbol, period=period, data=[], source="akshare",
+                symbol=symbol, period=period, data=[], source=source,
                 status="failed", message="获取分钟级数据失败"
             )
 
-        # 缓存分钟级数据
-        from data.cache import save_kline
-        save_kline(symbol, "akshare", df, period=period)
+        # 缓存分钟级数据（如果是 AKShare 拉取的）
+        if source == "akshare":
+            save_kline(symbol, "akshare", df, period=period)
 
         # 准备返回数据
         data_list = []
         for _, row in df.iterrows():
+            # kline_cache 字段名是小写，AKShare 也是
             td = str(row.get("trade_date", ""))
+            if not td:
+                continue
             item = {
                 "date": td,
                 "open": round(float(row.get("open", 0)), 2),
@@ -88,7 +104,6 @@ async def get_kline(
                 item["amount"] = float(row["amount"])
             data_list.append(item)
 
-        # 分钟级不计算技术指标
         # 获取股票名称
         name = ""
         try:
@@ -102,20 +117,39 @@ async def get_kline(
             symbol=symbol, period=period, data=data_list,
             indicators={},
             validation=[],
-            source="akshare",
+            source=source,
             status="ok",
             name=name,
-            message=f"AKShare 分钟级K线 (period={minute_period})，共 {len(data_list)} 条",
+            message=f"分钟级K线 (source={source}, period={tdx_period})，共 {len(data_list)} 条",
         )
 
     # 日/周/月 - 优先从 sequoia.db 读取日线
     kline_data = None
+    sequoia_stale = False
     if period == "daily":
         try:
             from data.sequoia_engine import get_daily_kline
             sq_data = get_daily_kline(symbol, start_date, end_date)
             if sq_data:
-                kline_data = sq_data
+                # 检查 sequoia 数据是否缺少最新交易日
+                latest_sq = max(r["date"] for r in sq_data)
+                expected = datetime.now().date()
+                if expected.weekday() >= 5:  # 周六/日 → 回退到上周五
+                    expected = expected - timedelta(days=expected.weekday() - 4)
+                if latest_sq < expected.strftime("%Y-%m-%d"):
+                    sequoia_stale = True
+                    logger.info(f"[Kline] {symbol}: sequoia 最新 {latest_sq}, 缺 {expected}, 走 baostock fallback")
+                else:
+                    kline_data = sq_data
+        except Exception:
+            pass
+
+    # sequoia 旧了也 fallback 到双源校验，但保留 sequoia 数据作为历史补充
+    _sequoia_backup = None
+    if sequoia_stale:
+        try:
+            from data.sequoia_engine import get_daily_kline
+            _sequoia_backup = get_daily_kline(symbol, start_date, end_date)
         except Exception:
             pass
 
@@ -160,6 +194,25 @@ async def get_kline(
                 status="failed", message="无可用数据"
             )
 
+        # 如果 sequoia 有历史数据但缺最新日，合并补充历史部分
+        if _sequoia_backup:
+            try:
+                backup_dates = set(str(d)[:10] for d in df["trade_date"])
+                extra_rows = [r for r in _sequoia_backup if r["date"] not in backup_dates]
+                if extra_rows:
+                    import pandas as pd
+                    extra_df = pd.DataFrame(extra_rows)
+                    if "date" in extra_df.columns:
+                        extra_df = extra_df.rename(columns={"date": "trade_date"})
+                    extra_df["trade_date"] = pd.to_datetime(extra_df["trade_date"])
+                    # 金额列名兼容
+                    if "turnover" in extra_df.columns and "amount" not in extra_df.columns:
+                        extra_df = extra_df.rename(columns={"turnover": "amount"})
+                    df = pd.concat([df, extra_df], ignore_index=True)
+                    df = df.sort_values("trade_date").drop_duplicates(subset=["trade_date"])
+            except Exception as e:
+                logger.warning(f"[Kline] 合并 sequoia 历史数据失败: {e}")
+
         # 准备返回数据
         data_list = []
         for _, row in df.iterrows():
@@ -188,30 +241,6 @@ async def get_kline(
         if fund:
             name = fund.get("name", "")
     except Exception:
-        pass
-
-    # 后台预缓存所有其他周期的K线数据
-    try:
-        from data.cache import save_kline, get_kline
-        import asyncio, threading
-        async def _do_precache():
-            others = [p for p in ["daily","weekly","monthly","15min","30min","60min"] if p != period]
-            for op in others:
-                try:
-                    existing = get_kline(symbol, "akshare", period=op)
-                    if existing is not None and not existing.empty:
-                        continue
-                    if op in ("15min","30min","60min"):
-                        pm = {"15min":"15","30min":"30","60min":"60"}
-                        df2 = akshare_fetcher.get_minute_kline(symbol, pm[op])
-                    else:
-                        df2 = akshare_fetcher.get_daily_kline(symbol, period=op)
-                    if df2 is not None and not df2.empty:
-                        save_kline(symbol, "akshare", df2, period=op)
-                except:
-                    pass
-        threading.Thread(target=lambda: asyncio.run(_do_precache()), daemon=True).start()
-    except:
         pass
 
     return KlineResponse(
@@ -294,6 +323,36 @@ async def get_stock_list():
         return {"status": "failed", "data": [], "message": "获取失败"}
     stocks = df.to_dict(orient="records")
     return {"status": "ok", "data": stocks, "total": len(stocks)}
+
+
+@router.get("/cr-indicator/{symbol}")
+async def get_cr_indicator(symbol: str, limit: int = 60):
+    """获取某只股票的 CR 指标日线数据"""
+    from data.cache import DB_PATH
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        """SELECT trade_date, cr, cr_ma1, cr_ma2, cr_ma3
+           FROM stock_cr_indicator
+           WHERE symbol=?
+           ORDER BY trade_date DESC
+           LIMIT ?""",
+        (symbol, limit)
+    ).fetchall()
+    conn.close()
+    return {
+        "symbol": symbol,
+        "data": [
+            {
+                "date": r[0],
+                "cr": r[1],
+                "ma1": r[2],
+                "ma2": r[3],
+                "ma3": r[4],
+            }
+            for r in rows
+        ]
+    }
 
 
 @router.get("/fundamentals/{symbol}")

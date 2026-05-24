@@ -12,7 +12,7 @@ from data.sequoia_engine import (
     get_picks_history, get_strategy_signals,
     get_multi_strategy_picks,
     refresh_vol20day, query_vol20day, get_vol20day_total,
-    stock_has_strategy_picks,
+    stock_has_strategy_picks, query_stock_strategies,
     STRATEGY_META,
 )
 
@@ -107,7 +107,8 @@ async def trigger_sync():
                     today = date.today().strftime("%Y-%m-%d")
                     strategies = [(key, cls(engine, settings)) for key, cls in STRATEGY_CLASSES.items()]
                     import sqlite3
-                    DB = 'backend/data/stock_cache.db'
+                    from pathlib import Path
+                    DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
                     conn = sqlite3.connect(DB)
                     conn.execute("DELETE FROM strategy_picks WHERE date=?", (today,))
                     all_picks = []
@@ -163,9 +164,19 @@ async def get_picks(
     today_only: bool = Query(True, description="仅今日"),
     days: int = Query(1, description="回溯天数"),
 ):
-    """获取选股结果"""
+    """获取选股结果
+    
+    非交易日自动回退到最近有数据的交易日。
+    """
     if today_only or days <= 1:
         rows = get_todays_picks(strategy=strategy)
+        # 非交易日没有当日数据时，回退到最近交易日
+        if not rows:
+            rows = get_picks_history(days=14, strategy=strategy)
+            if rows:
+                # 只保留最近一个交易日的
+                latest_date = rows[0]["date"]
+                rows = [r for r in rows if r["date"] == latest_date]
     else:
         rows = get_picks_history(days=days, strategy=strategy)
 
@@ -193,12 +204,25 @@ async def stock_strategy_check(symbol: str):
 
 @router.get("/signals/{symbol}")
 async def stock_strategy_signals(symbol: str):
-    """个股当日被哪些策略选中"""
+    """个股当日被哪些策略选中（文本）"""
     text = get_strategy_signals(symbol)
     return {
         "symbol": symbol,
         "signals": text,
         "has_signals": bool(text),
+    }
+
+
+@router.get("/query-stock/{symbol}")
+async def stock_strategy_query(symbol: str):
+    """个股策略查询（结构化）
+    
+    检查最近 N 天内该股票被哪些策略选中，返回策略列表及排名。
+    """
+    result = query_stock_strategies(symbol)
+    return {
+        "status": "ok",
+        **result,
     }
 
 

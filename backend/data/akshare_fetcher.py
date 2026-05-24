@@ -52,7 +52,7 @@ def get_daily_kline(symbol: str, start_date: str = None, end_date: str = None) -
         _rate_limit()
         df = ak.stock_zh_a_hist(symbol=symbol, period="daily",
                                 start_date=_start, end_date=_end,
-                                adjust="qfq")  # 前复权
+                                adjust="qfq", timeout=10)  # 前复权
         if df is not None and not df.empty:
             # 统一列名
             df = df.rename(columns={
@@ -90,7 +90,7 @@ def get_weekly_kline(symbol: str, start_date: str = None, end_date: str = None) 
         _rate_limit()
         df = ak.stock_zh_a_hist(symbol=symbol, period="weekly",
                                 start_date=_start, end_date=_end,
-                                adjust="qfq")
+                                adjust="qfq", timeout=10)
         if df is not None and not df.empty:
             df = df.rename(columns={
                 "日期": "trade_date",
@@ -117,7 +117,7 @@ def get_monthly_kline(symbol: str, start_date: str = None, end_date: str = None)
         _rate_limit()
         df = ak.stock_zh_a_hist(symbol=symbol, period="monthly",
                                 start_date=_start, end_date=_end,
-                                adjust="qfq")
+                                adjust="qfq", timeout=10)
         if df is not None and not df.empty:
             df = df.rename(columns={
                 "日期": "trade_date",
@@ -177,7 +177,7 @@ def get_individual_info(symbol: str) -> Optional[dict]:
         return None
     try:
         _rate_limit()
-        df = ak.stock_individual_info_em(symbol=symbol)
+        df = ak.stock_individual_info_em(symbol=symbol, timeout=10)
         if df is not None and not df.empty:
             info = {}
             for _, row in df.iterrows():

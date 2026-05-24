@@ -20,7 +20,7 @@ import pandas as pd
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
-DB_PATH = str(BACKEND_DIR / "data" / "stock_cache.db")
+DB_PATH = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
 START_DATE = "20240101"  # AKShare 格式：YYYYMMDD
 
 

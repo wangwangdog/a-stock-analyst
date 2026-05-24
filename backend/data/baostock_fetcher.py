@@ -69,7 +69,7 @@ def _from_bs_code(bs_code: str) -> str:
 
 
 def get_daily_kline(symbol: str, start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
-    """获取日K线（后复权）"""
+    """获取日K线（前复权）"""
     if not _ensure_login():
         return None
     try:
@@ -85,7 +85,7 @@ def get_daily_kline(symbol: str, start_date: str = None, end_date: str = None) -
             start_date=start_date,
             end_date=end_date,
             frequency="d",
-            adjustflag="1"  # 前复权（与 AKShare 保持一致）
+            adjustflag="2"  # 前复权（与 AKShare 保持一致）
         )
         if rs.error_code != '0':
             logger.warning(f"[Baostock] 查询失败 {symbol}: {rs.error_msg}")

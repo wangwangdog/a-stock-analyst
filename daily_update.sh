@@ -15,8 +15,9 @@ echo "--- 交易日历同步 ---" >> "$LOGFILE"
 python3 -c "
 import sys, sqlite3
 sys.path.insert(0, 'backend')
+from pathlib import Path
 import baostock as bs
-DB = 'backend/data/stock_cache.db'
+DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
 bs.login()
 rs = bs.query_trade_dates(start_date='2024-01-01', end_date='2028-12-31')
 rows = []
@@ -36,7 +37,8 @@ TODAY=$(date +%Y-%m-%d)
 echo "--- 检查交易日: $TODAY ---" >> "$LOGFILE"
 IS_TRADING=$(python3 -c "
 import sys, sqlite3
-DB = 'backend/data/stock_cache.db'
+from pathlib import Path
+DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
 conn = sqlite3.connect(DB)
 r = conn.execute('SELECT is_trading_day FROM trade_calendar WHERE calendar_date=?', ('$TODAY',)).fetchone()
 conn.close()
@@ -57,6 +59,8 @@ echo "✅ $TODAY 是交易日，开始数据同步" >> "$LOGFILE"
 echo "--- 检查 baostock 今日数据是否就绪 ---" >> "$LOGFILE"
 DATA_READY=$(python3 -c "
 import baostock as bs
+import sys
+# 将 baostock 的 stdout 重定向到 stderr（只保留 print(ok) 到 stdout）
 bs.login()
 rs = bs.query_history_k_data_plus('sh.600000', 'date,open,close', start_date='$TODAY', end_date='$TODAY', frequency='d', adjustflag='2')
 ok = 0
@@ -65,7 +69,7 @@ while rs.next():
     if r[0] and r[1] != '': ok = 1
 bs.logout()
 print(ok)
-" 2>/dev/null)
+" 2>/dev/null | tail -1)
 
 if [ "$DATA_READY" != "1" ]; then
     echo "⏸️ baostock 今日数据尚未就绪，跳过（通常 17:00 后可用）" >> "$LOGFILE"
@@ -79,8 +83,9 @@ echo "--- stock_daily 增量 ---" >> "$LOGFILE"
 python3 -c "
 import sys, sqlite3, time
 sys.path.insert(0, 'backend')
+from pathlib import Path
 import baostock as bs
-DB = 'backend/data/stock_cache.db'
+DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
 
 conn = sqlite3.connect(DB)
 stocks = [r[0] for r in conn.execute('SELECT DISTINCT symbol FROM stock_daily').fetchall()]
@@ -147,9 +152,9 @@ bs.logout()
 print('stock_daily 增量完成', flush=True)
 " >> "$LOGFILE" 2>&1
 
-# 5. kline_cache 增量
-echo "--- kline_cache 增量 ---" >> "$LOGFILE"
-python3 backend/scripts/data_update.py >> "$LOGFILE" 2>&1
+# 5. kline_cache 增量（仅日线，分钟线凌晨单独跑）
+echo "--- kline_cache 日线增量 ---" >> "$LOGFILE"
+python3 backend/scripts/data_update.py --mode daily >> "$LOGFILE" 2>&1
 
 echo "=== $(date) 完成 ===" >> "$LOGFILE"
 cat "$LOGFILE"

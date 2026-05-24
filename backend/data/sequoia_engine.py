@@ -2,7 +2,7 @@
 Sequoia-X 数据引擎（已集成到 a-stock-analyst 项目内）
 
 提供：
-1. 每日数据同步（baostock → stock_cache.db）
+1. 每日数据同步（baostock → chanlun_klines.sqlite）
 2. 日线数据读取接口
 3. 策略运行 + 结果写入 strategy_picks 表
 """
@@ -22,9 +22,8 @@ from sequoia_x.strategy.limit_up_shakeout import LimitUpShakeoutStrategy
 from sequoia_x.strategy.uptrend_limit_down import UptrendLimitDownStrategy
 from sequoia_x.strategy.rps_breakout import RpsBreakoutStrategy
 
-# ── 数据库路径：统一用 stock_cache.db ──
-BASE_DIR = Path(__file__).resolve().parent.parent          # backend/
-DB_PATH = str(BASE_DIR / "data" / "stock_cache.db")
+# ── 数据库路径：统一用 chanlun-pro 数据库 ──
+DB_PATH = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
 
 
 # ── 策略注册 ──
@@ -107,12 +106,23 @@ def check_status() -> dict:
         status["stock_count"] = r[0] if r else 0
         r = conn.execute("SELECT MAX(date) FROM stock_daily").fetchone()
         status["latest_date"] = r[0] if r else None
-        # 今日选股
+        # 选股数据最新日期（优先展示 strategy_picks 的最新日期）
+        r2 = conn.execute("SELECT MAX(date) FROM strategy_picks").fetchone()
+        if r2 and r2[0] and r2[0] > (status["latest_date"] or ""):
+            status["latest_date"] = r2[0]
+        # 今日选股（非交易日回退最近交易日）
         today = date.today().strftime("%Y-%m-%d")
         r = conn.execute(
             "SELECT COUNT(DISTINCT symbol) FROM strategy_picks WHERE date=?", (today,)
         ).fetchone()
-        status["picks_today"] = r[0] if r else 0
+        picks_count = r[0] if r else 0
+        if not picks_count:
+            r = conn.execute(
+                "SELECT COUNT(DISTINCT symbol) FROM strategy_picks "
+                "WHERE date=(SELECT MAX(date) FROM strategy_picks)"
+            ).fetchone()
+            picks_count = r[0] if r else 0
+        status["picks_today"] = picks_count
         conn.close()
     except Exception:
         pass
@@ -173,22 +183,29 @@ def daily_sync(progress_callback=None) -> dict:
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM strategy_picks WHERE date=?", (today,))
+    conn.commit()
+    conn.close()
 
     total_strategies = len(strategies)
     completed = 0
+    _picks_lock = __import__('threading').Lock()
 
     def _run_one(key, cls_instance):
         try:
             selected = cls_instance.run()
-            result = {"key": key, "ok": True, "picks": len(selected), "error": None}
-            # 写入选股结果
+            # 在各线程中创建独立连接写入
+            _c = sqlite3.connect(DB_PATH)
             for rank, symbol in enumerate(selected):
-                conn.execute(
+                _c.execute(
                     "INSERT INTO strategy_picks (date, strategy, symbol, rank) VALUES (?, ?, ?, ?)",
                     (today, key, symbol, rank),
                 )
-                all_picks.append((key, symbol))
-            return result
+            _c.commit()
+            _c.close()
+            with _picks_lock:
+                for s in selected:
+                    all_picks.append((key, s))
+            return {"key": key, "ok": True, "picks": len(selected), "error": None}
         except Exception as e:
             return {"key": key, "ok": False, "picks": 0, "error": str(e)}
 
@@ -210,9 +227,6 @@ def daily_sync(progress_callback=None) -> dict:
                 logging.getLogger("sequoia_engine").warning(
                     f"[{result['key']}] 策略运行失败: {result['error']}"
                 )
-
-    conn.commit()
-    conn.close()
 
     picks_by_strategy = {}
     for key, sym in all_picks:
@@ -289,21 +303,80 @@ def stock_has_strategy_picks(symbol: str) -> bool:
 
 
 def get_strategy_signals(ticker: str) -> str:
-    """个股今日被哪些策略选中（供 AI Agent 使用）"""
-    if not Path(DB_PATH).exists():
+    """个股今日被哪些策略选中（供 AI Agent 使用，返回文本）"""
+    data = query_stock_strategies(ticker)
+    if not data["strategies"]:
         return ""
+    parts = [f"{s['name']} ✓" for s in data["strategies"]]
+    return " | ".join(parts)
+
+
+def query_stock_strategies(symbol: str, max_days: int = 7) -> dict:
+    """查询个股在策略数据库中最近被哪些策略选中（结构化结果）
+
+    Args:
+        symbol: 股票代码
+        max_days: 向前回溯天数
+
+    Returns:
+        {
+            "symbol": str,
+            "name": str,           # 股票名称（可能为空）
+            "date": str,           # 最近有数据的日期
+            "strategy_count": int,  # 满足的策略数
+            "strategies": [         # 策略详情
+                {"key": str, "name": str, "rank": int},
+            ]
+        }
+    """
+    result = {
+        "symbol": symbol,
+        "name": _get_stock_name(symbol),
+        "date": None,
+        "strategy_count": 0,
+        "strategies": [],
+    }
+
+    if not Path(DB_PATH).exists():
+        return result
+
+    from datetime import timedelta
+    start = (date.today() - timedelta(days=max_days)).strftime("%Y-%m-%d")
     today = date.today().strftime("%Y-%m-%d")
+
     conn = sqlite3.connect(DB_PATH)
     try:
+        # 找到最近有数据的日期
+        date_row = conn.execute(
+            "SELECT MAX(date) FROM strategy_picks WHERE symbol=? AND date BETWEEN ? AND ?",
+            (symbol, start, today)
+        ).fetchone()
+        latest_date = date_row[0] if date_row and date_row[0] else None
+        if not latest_date:
+            return result
+
+        result["date"] = latest_date
+
+        # 按策略查 rank
         rows = conn.execute(
-            "SELECT DISTINCT strategy FROM strategy_picks WHERE symbol=? AND date=?",
-            (ticker, today)
+            "SELECT strategy, MIN(rank) as best_rank FROM strategy_picks "
+            "WHERE symbol=? AND date=? "
+            "GROUP BY strategy ORDER BY best_rank ASC",
+            (symbol, latest_date)
         ).fetchall()
-        if not rows:
-            return ""
+
         name_map = dict((k, n) for k, n, _ in STRATEGY_META)
-        parts = [f"{name_map.get(r[0], r[0])} ✓" for r in rows]
-        return " | ".join(parts)
+        strategies = []
+        for r in rows:
+            strategies.append({
+                "key": r[0],
+                "name": name_map.get(r[0], r[0]),
+                "rank": r[1],
+            })
+
+        result["strategies"] = strategies
+        result["strategy_count"] = len(strategies)
+        return result
     finally:
         conn.close()
 
@@ -367,7 +440,7 @@ VOL20DAY_TABLE = "vol20day"
 
 
 def _init_vol20day_table():
-    """创建 vol20day 表（存于 stock_cache.db）"""
+    """创建 vol20day 表（存于 chanlun_klines.sqlite）"""
     conn = sqlite3.connect(DB_PATH)
     try:
         conn.execute(f"""

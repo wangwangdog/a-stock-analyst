@@ -180,9 +180,9 @@ def main():
         df_big = None
 
     if df_big is not None and not df_big.empty:
-        SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-        DB = os.path.join(SCRIPT_DIR, '..', 'data', 'stock_cache.db')
         import sqlite3
+        from pathlib import Path
+        DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
         conn = sqlite3.connect(DB)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS big_buy_summary (

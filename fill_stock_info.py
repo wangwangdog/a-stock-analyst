@@ -5,7 +5,7 @@ sys.path.insert(0, "backend")
 import akshare as ak
 import baostock as bs
 
-DB = "backend/data/stock_cache.db"
+DB = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
 INTERVAL = 0.15
 
 conn = sqlite3.connect(DB)
