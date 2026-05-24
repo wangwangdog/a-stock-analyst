@@ -22,7 +22,7 @@
 
     <!-- 右侧：原有主页面内容 -->
     <div class="right-content" v-if="!activeStock">
-      <van-nav-bar title="A-Stock Analyst" left-text="胖磊 🦞">
+      <van-nav-bar title="AI量化工具-DOGE" left-text="胖磊 🦞">
         <template #right>
           <span style="font-size:12px;color:#999;margin-right:8px" v-if="username">{{ username }}</span>
           <van-icon name="logout" @click="doLogout" style="padding:4px" />

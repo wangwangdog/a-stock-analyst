@@ -43,6 +43,7 @@ async def get_kline(
     start_date: str = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end_date: str = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     indicators: bool = Query(True),
+    ma_periods: str = Query("5,10,20,60", description="均线周期，逗号分隔"),
 ):
     """获取K线数据
 
@@ -232,7 +233,9 @@ async def get_kline(
     # 计算技术指标
     ind_dict = {}
     if indicators and len(data_list) > 20 and df is not None and not df.empty:
-        ind_dict = calc_all_indicators(df)
+        # 解析自定义 MA 参数
+        ma_list = [int(p.strip()) for p in ma_periods.split(",") if p.strip().isdigit()]
+        ind_dict = calc_all_indicators(df, ma_periods=ma_list if ma_list else None)
 
     # 获取股票名称
     name = ""

@@ -1,7 +1,7 @@
 <template>
   <div class="login-page">
     <div class="login-box">
-      <div class="login-title">🦞 A-Stock Analyst</div>
+      <div class="login-title">🦞 AI量化工具-DOGE</div>
       <div class="login-subtitle">请输入用户名开始使用</div>
       <van-field
         v-model="username"

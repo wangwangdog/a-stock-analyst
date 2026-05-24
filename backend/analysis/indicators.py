@@ -91,10 +91,10 @@ def calc_kdj(df: pd.DataFrame, period=9) -> dict:
     }
 
 
-def calc_all_indicators(df: pd.DataFrame) -> dict:
+def calc_all_indicators(df: pd.DataFrame, ma_periods: list = None) -> dict:
     """计算所有常用技术指标"""
     return {
-        "ma": calc_ma(df),
+        "ma": calc_ma(df, periods=ma_periods if ma_periods else [5, 10, 20, 60]),
         "macd": calc_macd(df),
         "rsi": calc_rsi(df),
         "bollinger": calc_bollinger(df),

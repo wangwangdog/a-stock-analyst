@@ -44,6 +44,13 @@
         <span>高 {{ priceData.high.toFixed(2) }}</span>
         <span>低 {{ priceData.low.toFixed(2) }}</span>
         <span>开 {{ priceData.open.toFixed(2) }}</span>
+                <span v-if="rangeInfo.show" style="color:#ee0a24;font-weight:600">
+          框选({{ rangeInfo.days }}日): {{ rangeInfo.startPrice?.toFixed(2) }} → {{ rangeInfo.endPrice?.toFixed(2) }}  
+          <span :style="{color: rangeInfo.change >= 0 ? '#ff4757' : '#07c160'}">
+            {{ rangeInfo.change >= 0 ? '+' : '' }}{{ rangeInfo.change?.toFixed(2) }}
+            ({{ rangeInfo.pct >= 0 ? '+' : '' }}{{ rangeInfo.pct?.toFixed(2) }}%)
+          </span>
+        </span>
       </div>
     </div>
 
@@ -61,10 +68,21 @@
     <div class="main-chart-wrap">
       <div class="chart-container" ref="chartRef">
         <div class="chart-watermark">{{ stockName || symbol }}</div>
+        <div class="range-label" v-show="rangeInfo.show" :style="rangeLabelStyle">
+          <span :style="{color: rangeInfo.change >= 0 ? '#ff4757' : '#07c160', fontWeight: 600}">
+            {{ rangeInfo.change >= 0 ? '+' : '' }}{{ rangeInfo.pct?.toFixed(2) }}%
+          </span>
+          <span style="font-size:11px;color:#999;margin-left:4px">
+            {{ rangeInfo.days }}日
+          </span>
+          <div style="font-size:10px;color:#666;margin-top:1px">
+            {{ rangeInfo.startPrice?.toFixed(2) }} → {{ rangeInfo.endPrice?.toFixed(2) }}
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- 技术指标选择 + 基本面 -->
+    <!-- 技术指标选择 + 基本面 + MA设置 -->
     <div class="indicator-bar">
       <van-tag
         v-for="ind in indicators"
@@ -75,6 +93,11 @@
         @click="toggleIndicator(ind)"
       >{{ ind.label }}</van-tag>
       <van-tag plain round :type="showFundamentals ? 'primary' : 'default'" style="margin: 2px 4px" @click="toggleFundamentals">📋 基本面</van-tag>
+      <van-tag plain round :type="rangeMode ? 'danger' : 'default'" style="margin: 2px 4px" @click="toggleRangeMode">📏 框选</van-tag>
+      <span class="ma-setting">
+        <span class="ma-label">MA:</span>
+        <input class="ma-input" v-model="maParamStr" placeholder="5,10,20,60" @change="updateMaParams" />
+      </span>
     </div>
 
     <!-- 股票代码+名称 -->
@@ -197,6 +220,11 @@
         <div class="sub-chart-label">有大买单</div>
         <div class="sub-chart-canvas" ref="ratioChartRef" id="ratio-chart"></div>
       </div>
+      <!-- CR 指标 子图 -->
+      <div class="sub-chart-item" v-show="crData.length">
+        <div class="sub-chart-label">CR <span class="cr-value" v-if="lastCr !== null">{{ lastCr }}</span></div>
+        <div class="sub-chart-canvas" ref="crChartRef" id="cr-chart"></div>
+      </div>
     </div>
 
     <!-- 操作按钮 -->
@@ -287,6 +315,65 @@ const fundData = ref({})
 const fundError = ref('')
 const tushareCompany = ref(null)
 const tusharePrice = ref(null)
+
+// CR 指标
+const crData = ref([])
+const crChartRef = ref(null)
+const lastCr = ref(null)
+// MA 自定义参数
+const maParamStr = ref(localStorage.getItem('kl_ma_params') || '5,10,20,60')
+let maPeriods = maParamStr.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0)
+// 框选涨幅
+const rangeInfo = ref({ show: false, startPrice: null, endPrice: null, change: null, pct: null, active: false, days: 0 })
+const rangeLabelStyle = ref({})
+const rangeMode = ref(false)
+let rangeClickCount = 0
+let rangeStartTime = null
+let rangeStartPriceVal = null
+let rangeLineSeries = null
+let rangePreviewLine = null
+
+function toggleRangeMode() {
+  rangeMode.value = !rangeMode.value
+  if (rangeMode.value) {
+    showToast('📏 框选模式：点击K线选择起点，再点击选择终点')
+    rangeClickCount = 0
+    rangeInfo.value = { show: false, startPrice: null, endPrice: null, change: null, pct: null, active: false, days: 0 }
+    if (mainChart) {
+      mainChart.applyOptions({ handleScroll: false, handleScale: false })
+    }
+  } else {
+    if (mainChart) {
+      mainChart.applyOptions({ handleScroll: { vertTouchDrag: true, horzTouchDrag: true, mouseWheel: true }, handleScale: { axisPressedMouse: true, mouseWheel: true, pinch: true } })
+    }
+    clearRangeOverlay()
+    rangeInfo.value = { show: false, startPrice: null, endPrice: null, change: null, pct: null, active: false, days: 0 }
+    rangeClickCount = 0
+  }
+}
+async function updateMaParams() {
+  const parts = maParamStr.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0)
+  if (!parts.length) {
+    showToast('MA 参数格式错误，请用逗号分隔，如 5,10,20,60')
+    return
+  }
+
+  maPeriods = parts
+  maParamStr.value = parts.join(',')
+  localStorage.setItem('kl_ma_params', maParamStr.value)
+
+  // 重新加载K线数据（后端会用新的 MA 参数重新计算）
+  loadData()
+}
+
+function clearRangeOverlay() {
+  if (rangeLineSeries) {
+    rangeLineSeries.setData([])
+  }
+  if (rangePreviewLine) {
+    rangePreviewLine.setData([])
+  }
+}
 
 async function toggleFundamentals() {
   showFundamentals.value = !showFundamentals.value
@@ -732,6 +819,7 @@ let maLines = []
 let macdChart = null
 let bigbuyChart = null
 let ratioChart = null
+let crChart = null
 
 let macdHistogram = null
 let macdLine = null
@@ -767,6 +855,7 @@ async function loadData() {
       start_date: getStartDate(period.value),
       end_date: getEndDate(),
       indicators: true,
+      ma_periods: maParamStr.value,
     })
     const data = res.data
     klineData.value = data.data || []
@@ -811,6 +900,22 @@ async function loadData() {
       }
     } else {
       bigbuyData.value = []
+    }
+
+    // 加载 CR 指标数据（仅日线）
+    if (period.value === 'daily') {
+      try {
+        const crRes = await fetch(`/api/v1/cr-indicator/${route.params.symbol || props.symbol}?limit=1000`)
+        const crJson = await crRes.json()
+        crData.value = (crJson.data || []).reverse()
+        lastCr.value = crData.value.length ? crData.value[crData.value.length - 1].cr : null
+      } catch (e) {
+        crData.value = []
+        lastCr.value = null
+      }
+    } else {
+      crData.value = []
+      lastCr.value = null
     }
 
     await nextTick()
@@ -891,6 +996,10 @@ function renderAllCharts() {
     if (showBigBuy.value) {
       renderRatioChart(lw, times)
     }
+    // CR 子图
+    if (crData.value.length) {
+      renderCrChart(lw, times)
+    }
 
     // 初始对齐时间轴
     setupTimeScaleSync()
@@ -902,6 +1011,7 @@ function destroyAllCharts() {
   if (macdChart) { macdChart.remove(); macdChart = null }
   if (bigbuyChart) { bigbuyChart.remove(); bigbuyChart = null }
   if (ratioChart) { ratioChart.remove(); ratioChart = null }
+  if (crChart) { crChart.remove(); crChart = null }
   candleSeries = null
   volSeries = null
   maLines = []
@@ -914,7 +1024,7 @@ function destroyAllCharts() {
 
 // ====== 主K线图 ======
 function renderMainChart(lw, times) {
-  const { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries } = lw
+    const { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries } = lw
 
   mainChart = createChart(chartRef.value, {
     layout: {
@@ -975,8 +1085,154 @@ function renderMainChart(lw, times) {
   }))
   volSeries.setData(volumes)
 
+  // ═══ 预创建框选用 LineSeries（避免动态 addSeries 重建 canvas）═══
+  rangeLineSeries = mainChart.addSeries(LineSeries, {
+    color: '#ee0a24',
+    lineWidth: 2,
+    lineStyle: 2,
+    lastValueVisible: false,
+    priceLineVisible: false,
+    crosshairMarkerVisible: false,
+  })
+  rangeLineSeries.setData([])  // 空数据，不显示
+
+  rangePreviewLine = mainChart.addSeries(LineSeries, {
+    color: 'rgba(238,10,36,0.25)',
+    lineWidth: 2,
+    lineStyle: 2,
+    lastValueVisible: false,
+    priceLineVisible: false,
+    crosshairMarkerVisible: false,
+  })
+  rangePreviewLine.setData([])  // 空数据，不显示
+
   // 均线（默认显示）
   renderMainIndicators(lw)
+
+  // ═══ K线框选：两次点击计算涨幅 ═══
+  //
+  // 注意：不依赖 lightweight-charts subscribeClick（canvas重建会丢失）
+  // 直接监听容器 div 的点击事件 + coordinateToTime
+
+  function findBarData(t) {
+    let norm
+    if (typeof t === 'string') norm = t
+    else if (typeof t === 'number') norm = t
+    else if (t && typeof t === 'object' && t.year !== undefined) {
+      norm = `${t.year}-${String(t.month).padStart(2,'0')}-${String(t.day).padStart(2,'0')}`
+    } else {
+      norm = String(t)
+    }
+    const idx = times.indexOf(norm)
+    if (idx >= 0 && idx < klineData.value.length) {
+      const d = klineData.value[idx]
+      return { time: norm, close: d.close, low: d.low, high: d.high, idx }
+    }
+    return null
+  }
+
+  // 直接用容器 div 的点击事件（不依赖 lightweight-charts canvas）
+  const chartContainer = chartRef.value
+  if (chartContainer) {
+    chartContainer.addEventListener('click', (e) => {
+      // 找到 chart 内的 canvas
+      const canvas = chartContainer.querySelector('canvas')
+      if (!canvas) {
+        console.log('[容器click] 无canvas')
+        return
+      }
+      const rect = canvas.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+
+      console.log('[容器click] x:', x.toFixed(0), 'y:', y.toFixed(0), 'rangeMode:', rangeMode.value, 'rangeClickCount:', rangeClickCount)
+
+      if (!rangeMode.value) return
+
+      // 用 lightweight-charts API 将坐标转时间
+      const t = mainChart.timeScale().coordinateToTime(x)
+      if (!t) {
+        console.log('[容器click] coordinateToTime 返回空', {x: x.toFixed(0)})
+        showToast('⚠️ 请点击K线区域')
+        return
+      }
+
+      console.log('[容器click] coordinateToTime:', t, '(type:', typeof t, ')')
+
+      const td = findBarData(t)
+      if (!td) {
+        console.log('[容器click] findBarData 未匹配:', t)
+        showToast('⚠️ 未匹配到K线数据:' + String(t))
+        return
+      }
+
+      console.log('[容器click 匹配成功]', td.time, 'close:', td.close)
+
+      // 已有框选结果 → 保留，不做任何清除，提示用户关闭框选重新开始
+      if (rangeInfo.value.show) {
+        showToast('ℹ️ 已有框选结果，关闭📏框选模式再重新选择')
+        return
+      }
+
+      if (rangeClickCount === 0) {
+        // ===== 第一次点击 =====
+        rangeStartTime = td.time
+        rangeStartPriceVal = td.close
+        rangeInfo.value = { show: false, startPrice: td.close, endPrice: null, change: null, pct: null, active: true, days: 0 }
+        rangeClickCount = 1
+        showToast(`✅ 起点: ${td.time} 收盘价 ${td.close.toFixed(2)} → 请点击终点K线`)
+
+        clearRangeOverlay()
+        rangeLineSeries.setData([
+          { time: td.time, value: td.low },
+          { time: td.time, value: td.high },
+        ])
+        rangePreviewLine.setData([
+          { time: td.time, value: td.close },
+          { time: td.time, value: td.close },
+        ])
+        console.log('[容器click] 起点标记完成')
+      } else {
+        // ===== 第二次点击 =====
+        const start = rangeStartPriceVal
+        const end = td.close
+        const change = end - start
+        const pct = start ? (change / start * 100) : 0
+        const startIdx = times.indexOf(rangeStartTime)
+        const daysCount = td.idx >= 0 && startIdx >= 0
+          ? Math.abs(td.idx - startIdx) + 1
+          : 0
+
+        rangeInfo.value = { show: true, startPrice: start, endPrice: end, change, pct, active: true, days: daysCount }
+
+        rangePreviewLine.setData([])
+        rangeLineSeries.setData([
+          { time: rangeStartTime, value: start },
+          { time: td.time, value: end },
+        ])
+        rangeLineSeries.applyOptions({ lineStyle: 0, color: '#ff4757', lineWidth: 2 })
+
+        // 在终点位置定位标签
+        requestAnimationFrame(() => {
+          try {
+            const endX = mainChart.timeScale().timeToCoordinate(td.time)
+            const endY = candleSeries.priceToCoordinate(end)
+            if (endX !== null && endY !== null) {
+              rangeLabelStyle.value = {
+                left: Math.min(endX + 8, (chartRef.value?.clientWidth || 600) - 140) + 'px',
+                top: Math.max(endY - 38, 0) + 'px',
+              }
+            }
+          } catch (e) {
+            console.log('[容器click] label定位失败:', e)
+          }
+        })
+        rangeClickCount = 0
+        console.log('[容器click] 涨幅计算完成')
+      }
+    })
+    console.log('[容器click] 已注册点击监听（替代subscribeClick）')
+  }
 }
 
 // ====== MACD 子图 ======
@@ -1056,8 +1312,11 @@ function renderMacdChart(lw, times) {
 
 // ====== 大单买入数子图（仅日线） ======
 function renderBigbuyChart(lw, times) {
-  if (!bigbuyChartRef.value || !bigbuyData.value.length) return
+  if (!bigbuyChartRef.value) return
   const { createChart, ColorType, HistogramSeries } = lw
+  
+  // 使用子图自身宽度，fallback到主K线图宽度
+  const subWidth = bigbuyChartRef.value.clientWidth || chartRef.value?.clientWidth || 360
 
   bigbuyChart = createChart(bigbuyChartRef.value, {
     layout: {
@@ -1080,7 +1339,7 @@ function renderBigbuyChart(lw, times) {
     },
     handleScroll: false,
     handleScale: false,
-    width: chartRef.value?.clientWidth || 360,
+    width: subWidth,
     height: 120,
   })
 
@@ -1105,6 +1364,7 @@ function renderBigbuyChart(lw, times) {
   })
 
   if (bbData.length) bigbuyHistogram.setData(bbData)
+  else bigbuyHistogram.setData([{ time: times[0] || '', value: 0 }])
 
   // 柱顶标注大笔买数
   try {
@@ -1132,8 +1392,11 @@ function renderBigbuyChart(lw, times) {
 
 // ====== 有大买单子图（参照大单买入数实现） ======
 function renderRatioChart(lw, times) {
-  if (!ratioChartRef.value || !bigDealData.value.length) return
+  if (!ratioChartRef.value) return
   const { createChart, ColorType, HistogramSeries } = lw
+  
+  // 使用子图自身宽度，fallback到主K线图宽度
+  const subWidth = ratioChartRef.value.clientWidth || chartRef.value?.clientWidth || 360
 
   ratioChart = createChart(ratioChartRef.value, {
     layout: {
@@ -1156,7 +1419,7 @@ function renderRatioChart(lw, times) {
     },
     handleScroll: false,
     handleScale: false,
-    width: chartRef.value?.clientWidth || 360,
+    width: subWidth,
     height: 120,
   })
 
@@ -1166,6 +1429,11 @@ function renderRatioChart(lw, times) {
     lastValueVisible: false,
   })
 
+  // 无数据则显示空图表（不return，避免图表实例丢失）
+  if (!bigDealData.value.length) {
+    ratioHistogram.setData([{ time: times[0] || '', value: 0 }])
+    return
+  }
 
   // 构建完整的日期序列，与 K线时间轴对齐
   const bdMap = {}
@@ -1196,7 +1464,7 @@ function renderRatioChart(lw, times) {
           position: 'aboveBar',
           color: '#ff8c00',
           shape: 'arrowUp',
-          text: String(match.volume || match.count || 0),
+          text: String(match.qty || match.count || 0),
         })
       }
     })
@@ -1204,6 +1472,81 @@ function renderRatioChart(lw, times) {
       ratioHistogram.setMarkers(markers)
     }
   } catch (e) {}
+}
+
+// ====== CR 指标子图 ======
+
+// ====== CR 指标子图（与MACD一样映射到K线times，支持setVisibleLogicalRange同步） ======
+function renderCrChart(lw, times) {
+  if (!crChartRef.value || !crData.value.length) return
+  const { createChart, ColorType, LineSeries } = lw
+
+  const width = crChartRef.value.clientWidth || crChartRef.value.parentElement?.clientWidth || 400
+
+  crChart = createChart(crChartRef.value, {
+    width,
+    height: 130,
+    layout: {
+      background: { type: ColorType.Solid, color: '#FFFEF5' },
+      textColor: '#333',
+    },
+    rightPriceScale: {
+      visible: true,
+      borderColor: '#e8e0c8',
+      scaleMargins: { top: 0.08, bottom: 0.08 },
+    },
+    timeScale: {
+      visible: true,
+      borderColor: '#e8e0c8',
+      timeVisible: true,
+      secondsVisible: false,
+    },
+    grid: {
+      vertLines: { color: '#f5f0e0' },
+      horzLines: { color: '#f5f0e0' },
+    },
+    crosshair: { mode: 0 },
+    handleScroll: false,
+    handleScale: false,
+  })
+
+  const crLine = crChart.addSeries(LineSeries, {
+    color: '#eb2f96',
+    lineWidth: 2,
+    lastValueVisible: true,
+    priceLineVisible: true,
+    priceLineColor: '#eb2f96',
+    priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
+  })
+  const ma1Line = crChart.addSeries(LineSeries, { color: '#fadb14', lineWidth: 1.5, lastValueVisible: false, priceLineVisible: false })
+  const ma2Line = crChart.addSeries(LineSeries, { color: '#52c41a', lineWidth: 1.5, lastValueVisible: false, priceLineVisible: false })
+  const ma3Line = crChart.addSeries(LineSeries, { color: '#1890ff', lineWidth: 1.5, lastValueVisible: false, priceLineVisible: false })
+  
+  // 与MACD一样：将CR数据映射到K线 times 位置
+  // 按日期匹配，确保与主图时间轴对齐
+  const crByDate = {}
+  crData.value.forEach(d => { crByDate[d.date] = d })
+
+  const crValues = []
+  const ma1Values = []
+  const ma2Values = []
+  const ma3Values = []
+
+  klineData.value.forEach((kd, i) => {
+    const date = kd.date ? kd.date.slice(0, 10) : ''
+    if (!date) return
+    const d = crByDate[date]
+    if (!d) return
+    crValues.push({ time: times[i], value: d.cr })
+    if (d.ma1 != null) ma1Values.push({ time: times[i], value: d.ma1 })
+    if (d.ma2 != null) ma2Values.push({ time: times[i], value: d.ma2 })
+    if (d.ma3 != null) ma3Values.push({ time: times[i], value: d.ma3 })
+  })
+
+  if (crValues.length) crLine.setData(crValues)
+  if (ma1Values.length) ma1Line.setData(ma1Values)
+  if (ma2Values.length) ma2Line.setData(ma2Values)
+  if (ma3Values.length) ma3Line.setData(ma3Values)
 }
 
 // ====== 均线渲染 ======
@@ -1219,8 +1562,8 @@ function renderMainIndicators(lw) {
   const ind = indData.value
 
   if (active.find(i => i.key === 'ma') && ind.ma) {
-    const periods = [5, 10, 20, 60]
-    const colors = ['#f7931a', '#1890ff', '#52c41a', '#722ed1']
+    const periods = maPeriods
+    const colors = ['#f7931a', '#1890ff', '#52c41a', '#722ed1', '#eb2f96', '#13c2c2', '#fa541c', '#2f54eb']
     periods.forEach((p, idx) => {
       const key = `MA${p}`
       if (ind.ma[key] && ind.ma[key].length) {
@@ -1269,75 +1612,47 @@ function renderMainIndicators(lw) {
     }
   }
 
-  // ═══ 画出最近20个交易日的首尾收盘价连线(斜线) ═══
-  if (klineData.value.length >= 20) {
-    const last20 = klineData.value.slice(-20)
-    const first = last20[0]
-    const last = last20[last20.length - 1]
-    const t1 = makeTime(first)
-    const t2 = makeTime(last)
-    const v1 = first.close || 0
-    const v2 = last.close || 0
 
-    if (t1 && t2 && v1 && v2 && t1 !== t2) {
-      const diagLine = mainChart.addSeries(LineSeries, {
-        color: 'rgba(0,0,0,0.35)',
-        lineWidth: 2,
-        lineStyle: 0,  // 实线
-        lastValueVisible: false,
-        priceLineVisible: false,
-        crosshairMarkerVisible: false,
-      })
-      diagLine.setData([
-        { time: t1, value: v1 },
-        { time: t2, value: v2 },
-      ])
-      maLines.push(diagLine)
-    }
-  }
 }
 
 // ====== 时间轴联动 ======
 function setupTimeScaleSync() {
-  const allCharts = [mainChart, macdChart]
-  if (bigbuyChart) allCharts.push(bigbuyChart)
-  if (ratioChart) allCharts.push(ratioChart)
+  // 主K线图 + 所有子图（CR同样映射到times，与MACD一样用索引同步）
+  const allSameCountCharts = [mainChart, macdChart]
+  if (bigbuyChart) allSameCountCharts.push(bigbuyChart)
+  if (ratioChart) allSameCountCharts.push(ratioChart)
+  if (crChart) allSameCountCharts.push(crChart)
 
-  // 获取所有 chart 的完整时间范围（以主图为准）
-  const times = klineData.value.map(d => makeTime(d))
-  const timeFrom = times[0]
-  const timeTo = times[times.length - 1]
-
-  // 使用绝对时间值 setVisibleRange 强制对齐
-  allCharts.forEach(c => {
-    if (!c) return
-    try {
-      c.timeScale().setVisibleRange({ from: timeFrom, to: timeTo })
-    } catch(e) {}
-  })
-
-  // 订阅可见范围变化，联动所有子图
-  allCharts.forEach((sourceChart, sourceIdx) => {
-    if (!sourceChart) return
-    let syncing = false
-
-    sourceChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-      if (syncing || !range) return
-      syncing = true
-
+  // 主图 fitContent 显示全部数据（与chanlun-pro TradingView默认一致）
+  setTimeout(() => {
+    if (!mainChart) return
+    allSameCountCharts.forEach(c => {
+      if (!c) return
       try {
-        allCharts.forEach((targetChart, targetIdx) => {
-          if (targetIdx === sourceIdx || !targetChart) return
-          targetChart.timeScale().setVisibleLogicalRange(range)
-        })
-      } catch (e) {
-        // ignore
-      }
-
-      requestAnimationFrame(() => { syncing = false })
+        c.timeScale().fitContent()
+      } catch(e) {}
     })
+  }, 100)
 
-  })
+  // 订阅主图变化，联动所有子图（包括CR，都已映射到times，用索引同步）
+  if (mainChart) {
+    allSameCountCharts.forEach((sourceChart, sourceIdx) => {
+      if (!sourceChart) return
+      let syncing = false
+
+      sourceChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (syncing || !range) return
+        syncing = true
+        try {
+          allSameCountCharts.forEach((targetChart, targetIdx) => {
+            if (targetIdx === sourceIdx || !targetChart) return
+            targetChart.timeScale().setVisibleLogicalRange(range)
+          })
+        } catch(e) {}
+        requestAnimationFrame(() => { syncing = false })
+      })
+    })
+  }
 }
 
 function toggleIndicator(ind) {
@@ -1479,6 +1794,17 @@ function showMenu() {
   z-index: 1;
   white-space: nowrap;
 }
+.range-label {
+  position: absolute;
+  background: rgba(255,255,245,0.95);
+  border: 1px solid #e0d8c0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  z-index: 10;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
 .stock-info-line {
   padding: 6px 16px;
   font-size: 13px;
@@ -1520,6 +1846,38 @@ function showMenu() {
   border-bottom: 1px solid #f0f0f0;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.ma-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+.ma-label {
+  font-size: 12px;
+  color: #666;
+  font-weight: 600;
+}
+.ma-input {
+  width: 100px;
+  height: 24px;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 0 10px;
+  font-size: 12px;
+  outline: none;
+  text-align: center;
+}
+.ma-input:focus {
+  border-color: #667eea;
+}
+.cr-value {
+  font-size: 12px;
+  color: #ff6b81;
+  font-weight: 700;
+  margin-left: 6px;
 }
 .sub-charts-area {
   width: 100%;
