@@ -28,66 +28,44 @@ def fetch_kline_cross_checked(symbol: str, start_date: str = None, end_date: str
     """
     result = {"primary": None, "backup": None, "validation": [], "source": "", "status": "ok", "message": ""}
 
-    # 1. 尝试缓存
+    # 1. 优先本地缓存（立即返回，不等待网络）
     cache_ak = get_kline(symbol, "akshare", start_date, end_date)
     cache_bs = get_kline(symbol, "baostock", start_date, end_date)
 
-    cache_fresh_ak = is_cache_fresh(symbol, "akshare")
-    cache_fresh_bs = is_cache_fresh(symbol, "baostock")
-
-    # 如果双方都有缓存且新鲜，直接用
-    if not cache_ak.empty and not cache_bs.empty and cache_fresh_ak and cache_fresh_bs:
+    # 有任一缓存即返回，网络数据源失败时缓存是主数据源
+    if not cache_ak.empty:
         result["primary"] = cache_ak
-        result["backup"] = cache_bs
         result["source"] = "cache"
-        result["validation"] = _validate_dfs(cache_ak, cache_bs, symbol)
+        if not cache_bs.empty:
+            result["backup"] = cache_bs
+            result["validation"] = _validate_dfs(cache_ak, cache_bs, symbol)
         result["status"] = "ok"
         result["message"] = "使用缓存数据"
         return result
 
-    # 2. 从 AKShare 获取
+    # 2. 无缓存时尝试网络（AKShare）
     df_ak = akshare_fetcher.get_daily_kline(symbol, start_date, end_date)
     if df_ak is not None and not df_ak.empty:
         save_kline(symbol, "akshare", df_ak)
         result["primary"] = df_ak
+        result["source"] = "akshare"
+        result["status"] = "ok"
+        result["message"] = "AKShare 实时数据"
+        return result
 
-    # 3. 从 Baostock 获取
+    # 3. 无缓存时尝试网络（Baostock）
     df_bs = baostock_fetcher.get_daily_kline(symbol, start_date, end_date)
     if df_bs is not None and not df_bs.empty:
         save_kline(symbol, "baostock", df_bs)
-        result["backup"] = df_bs
-
-    # 4. 判断状态
-    if df_ak is not None and df_bs is not None:
-        result["source"] = "akshare"
-        result["validation"] = _validate_dfs(df_ak, df_bs, symbol)
-        result["status"] = "ok"
-        result["message"] = f"双源校验完成，共校验 {len(result['validation'])} 天"
-    elif df_ak is not None:
-        result["source"] = "akshare"
-        result["status"] = "partial"
-        result["message"] = "仅 AKShare 数据可用"
-    elif df_bs is not None:
         result["primary"] = df_bs
         result["source"] = "baostock"
         result["status"] = "fallback"
-        result["message"] = "AKShare 不可用，使用 Baostock 回退"
-    else:
-        # 用缓存兜底
-        if not cache_ak.empty:
-            result["primary"] = cache_ak
-            result["source"] = "cache"
-            result["status"] = "fallback"
-            result["message"] = "实时获取失败，使用缓存数据"
-        elif not cache_bs.empty:
-            result["primary"] = cache_bs
-            result["source"] = "cache"
-            result["status"] = "fallback"
-            result["message"] = "实时获取失败，使用缓存数据"
-        else:
-            result["status"] = "failed"
-            result["message"] = "所有数据源均不可用"
+        result["message"] = "Baostock 实时数据"
+        return result
 
+    # 4. 所有数据源均不可用
+    result["status"] = "failed"
+    result["message"] = "所有数据源均不可用"
     return result
 
 

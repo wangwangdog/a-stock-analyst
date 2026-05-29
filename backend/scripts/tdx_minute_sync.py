@@ -43,7 +43,8 @@ def get_missing_dates(period, last_dates_set):
     ).fetchone()
     conn.close()
 
-    last_date = row[0] if row[0] else (today - timedelta(days=5)).strftime("%Y-%m-%d")
+    # 如果返回列名字符串（无数据）或空，则使用默认日期
+    last_date = row[0] if row[0] and row[0] != 'trade_date' else (today - timedelta(days=5)).strftime("%Y-%m-%d")
     last_d = date.fromisoformat(last_date)
 
     missing = []

@@ -42,3 +42,8 @@ requirements-all.txt
 backend/config/
 Sequoia-X/data/*.db
 Sequoia-X/
+
+# Realtime scripts
+realtime_*.py
+morning_report.md
+morning_strategy.py
