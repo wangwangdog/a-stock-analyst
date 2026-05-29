@@ -26,6 +26,7 @@ from routes.strategy import router as strategy_router
 from routes.chanlun import router as chanlun_router
 from routes.signals import router as signals_router
 from routes.backtest import router as backtest_router
+from routes.openalice import router as openalice_router
 
 app = FastAPI(
     title="A-Stock Analyst",
@@ -51,6 +52,7 @@ app.include_router(strategy_router)
 app.include_router(chanlun_router)
 app.include_router(signals_router)
 app.include_router(backtest_router)
+app.include_router(openalice_router)  # OpenAlice AI 集成
 
 # === 启动时数据检查 ===
 @app.on_event("startup")

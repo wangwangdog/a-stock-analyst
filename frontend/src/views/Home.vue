@@ -22,7 +22,7 @@
 
     <!-- 右侧：原有主页面内容 -->
     <div class="right-content" v-if="!activeStock">
-      <van-nav-bar title="AI量化工具-DOGE" left-text="胖磊 🦞">
+      <van-nav-bar title="AI 量化工具-DOGE" left-text="胖磊 🦞">
         <template #right>
           <span style="font-size:12px;color:#999;margin-right:8px" v-if="username">{{ username }}</span>
           <van-icon name="logout" @click="doLogout" style="padding:4px" />
@@ -40,10 +40,12 @@
 
       <div class="quick-links">
         <van-grid :column-num="3" :border="false">
-          <van-grid-item icon="chart-trending-o" text="热门K线" to="/kline/000001" />
+          <van-grid-item icon="chart-trending-o" text="热门 K 线" to="/kline/000001" />
           <van-grid-item icon="info-o" text="自选股" @click="showFavorites = true; loadFavs()" />
+          <van-grid-item icon="magic" text="OpenAlice" to="/openalice" />
           <van-grid-item icon="gem-o" text="策略选股" to="/strategies" />
           <van-grid-item icon="gem-o" text="量化选股" to="/strategies" />
+          <van-grid-item icon="link" text="外部链接" to="/links" />
         </van-grid>
       </div>
 
