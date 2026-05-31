@@ -8,6 +8,7 @@ import Strategies from '../views/Strategies.vue'
 import Links from '../views/Links.vue'
 import Settings from '../views/Settings.vue'
 import OpenAlice from '../views/OpenAlice.vue'
+import Kronos from '../views/Kronos.vue'
 
 const routes = [
   { path: '/login', name: 'Login', component: Login },
@@ -17,6 +18,7 @@ const routes = [
   { path: '/screener', name: 'Screener', component: Screener, meta: { requiresAuth: true } },
   { path: '/strategies', name: 'Strategies', component: Strategies, meta: { requiresAuth: true } },
   { path: '/openalice', name: 'OpenAlice', component: OpenAlice, meta: { requiresAuth: true, title: 'OpenAlice AI 分析' } },
+  { path: '/kronos', name: 'Kronos', component: Kronos, meta: { requiresAuth: true, title: 'Kronos AI 预测' } },
   { path: '/links', name: 'Links', component: Links, meta: { requiresAuth: true } },
   { path: '/settings', name: 'Settings', component: Settings, meta: { requiresAuth: true } },
 ]

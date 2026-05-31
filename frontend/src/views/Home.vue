@@ -43,8 +43,8 @@
           <van-grid-item icon="chart-trending-o" text="热门 K 线" to="/kline/000001" />
           <van-grid-item icon="info-o" text="自选股" @click="showFavorites = true; loadFavs()" />
           <van-grid-item icon="magic" text="OpenAlice" to="/openalice" />
+          <van-grid-item icon="chart-o" text="Kronos 预测" to="/kronos" />
           <van-grid-item icon="gem-o" text="策略选股" to="/strategies" />
-          <van-grid-item icon="gem-o" text="量化选股" to="/strategies" />
           <van-grid-item icon="link" text="外部链接" to="/links" />
         </van-grid>
       </div>

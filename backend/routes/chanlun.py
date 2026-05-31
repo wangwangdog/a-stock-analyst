@@ -13,6 +13,7 @@ logger = logging.getLogger('chanlun_route')
 router = APIRouter(prefix="/api/v1/chanlun", tags=["缠论分析"])
 
 # ── 数据库路径 ──
+BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
 
 # ── chanlun-pro 适配层 ──

@@ -23,10 +23,11 @@ from routes.ai import router as ai_router
 from routes.favorites import router as favorites_router
 from routes.auth import router as auth_router
 from routes.strategy import router as strategy_router
-from routes.chanlun import router as chanlun_router
+# from routes.chanlun import router as chanlun_router  # 暂时注释，chanlun 模块缺失
 from routes.signals import router as signals_router
 from routes.backtest import router as backtest_router
 from routes.openalice import router as openalice_router
+from routes.kronos import router as kronos_router
 
 app = FastAPI(
     title="A-Stock Analyst",
@@ -49,10 +50,11 @@ app.include_router(ai_router)
 app.include_router(favorites_router)
 app.include_router(auth_router)
 app.include_router(strategy_router)
-app.include_router(chanlun_router)
+# app.include_router(chanlun_router)  # 暂时禁用，chanlun 模块缺失
 app.include_router(signals_router)
 app.include_router(backtest_router)
 app.include_router(openalice_router)  # OpenAlice AI 集成
+app.include_router(kronos_router)  # Kronos 预测引擎
 
 # === 启动时数据检查 ===
 @app.on_event("startup")

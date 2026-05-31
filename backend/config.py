@@ -1,7 +1,14 @@
 import os
+from pathlib import Path
 
 # 数据库配置
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'backend', 'stock.db')
+DB_PATH = Path(__file__).parent / 'stock.db'
+
+# 请求间隔（秒）
+REQUEST_INTERVAL = 0.1
+
+# 数据验证配置
+VALIDATION_TOLERANCE = 0.001  # K 线数据验证容差
 
 # API 配置
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
