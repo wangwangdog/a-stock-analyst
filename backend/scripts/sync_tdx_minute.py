@@ -1,4 +1,4 @@
-#!/home/dogzi/.openclaw/workspace/cl-vendors/chanlun-pro/.venv/bin/python3
+#!/home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro/.venv/bin/python3
 """
 从通达信(TDX)实时行情接口同步分钟K线数据到本地 kline_cache 表
 

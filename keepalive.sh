@@ -18,7 +18,9 @@ if ! ss -tlnp 2>/dev/null | grep -q ':9901 '; then
   echo "$(date) [KEEPALIVE] uvicorn restarted" >> $LOG
 fi
 
-# 检查 chanlun (9903) - 只是检测，不自动重启（太重量级）
+# 检查 chanlun (9903) — 从 a-stock-analyst/chanlun-pro/ 启动
 if ! ss -tlnp 2>/dev/null | grep -q ':9903 '; then
-  echo "$(date) [KEEPALIVE] chanlun DOWN (not auto-restarting)" >> $LOG
+  cd /home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro && \
+    nohup .venv/bin/python web/chanlun_chart/app.py nobrowser >> /tmp/chanlun.log 2>&1 &
+  echo "$(date) [KEEPALIVE] chanlun-pro restarted from a-stock-analyst" >> $LOG
 fi

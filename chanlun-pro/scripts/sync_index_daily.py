@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """补充 kline_cache 上证指数(SH.000001)日线数据，存入完整前缀代码"""
 import sys, os, sqlite3
-sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/cl-vendors/chanlun-pro/src"))
+sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))
 
 DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
 

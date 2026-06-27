@@ -1,6 +1,6 @@
 """诊断 cl2.py — 5分钟K线，检查方向不匹配的中枢详情"""
 import sys
-sys.path.insert(0, '/home/dogzi/.openclaw/workspace/cl-vendors/chanlun-pro/src')
+sys.path.insert(0, '/home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro/src')
 
 import pandas as pd
 import sqlite3

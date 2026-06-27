@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """快速增量补5m - 复用TDX连接 + 只补>=05-28的数据"""
 import sys, os, time, sqlite3
-sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/cl-vendors/chanlun-pro/src"))
+sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))
 os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 from chanlun.exchange.exchange_tdx import ExchangeTDX
 

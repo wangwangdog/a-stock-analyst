@@ -8,7 +8,7 @@
 import sys, os, sqlite3, re, time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(os.path.expanduser("~/.openclaw/workspace/cl-vendors/chanlun-pro/src"))))
+sys.path.insert(0, str(Path(os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))))
 DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
 
 def prefix_for(code):

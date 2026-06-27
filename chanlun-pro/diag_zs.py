@@ -1,7 +1,7 @@
 """诊断 cl2.py 5笔中枢 — 看 bis 数据"""
 import sys
 sys.path.insert(0, '/home/dogzi/.openclaw/workspace/chanlun-pro')
-sys.path.insert(0, '/home/dogzi/.openclaw/workspace/cl-vendors/chanlun-pro/src')
+sys.path.insert(0, '/home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro/src')
 
 import pandas as pd
 import sqlite3

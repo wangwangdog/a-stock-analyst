@@ -4,7 +4,7 @@ sync_kline_cache_5m_incr.py — 增量补齐 kline_cache 5分钟数据
 已有数据的只拉最近1页(700条≈15天)，缺失的拉12页(8400条)
 """
 import sys, os, time
-sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/cl-vendors/chanlun-pro/src"))
+sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))
 os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 
 import sqlite3

@@ -7,19 +7,27 @@
     <div class="right-kline">
     <van-nav-bar
       left-arrow
-      @click-left="$router.back()"
+      @click-left="onClickLeft"
     >
       <template #title>
-        <span class="stock-header-btn" @click="goToChanlun" :title="'点击跳转缠论K线 ' + (route.params.symbol || props.symbol)">
-          {{ (route.params.symbol || props.symbol) + '  ' + stockName }}
-          <span style="font-size:11px;opacity:0.5;margin-left:4px">🔗</span>
-        </span>
+        <van-button size="small" plain type="primary" class="stock-header-btn" @click="goToChanlun" :title="'点击切换缠论K线 ' + (route.params.symbol || props.symbol)">
+          {{ showChanlun ? '📈 返回K线' : ((route.params.symbol || props.symbol) + '  ' + stockName) }}
+        </van-button>
       </template>
       <template #right>
         <van-icon name="more-o" @click="showMenu" />
       </template>
     </van-nav-bar>
 
+    <!-- K线内容（默认显示） -->
+    <!-- 加载遮罩 -->
+    <van-overlay :show="pageLoading" z-index="10">
+      <div class="loading-overlay">
+        <van-loading type="spinner" color="#1989fa" size="48" />
+        <div style="margin-top:12px;color:#1989fa;font-size:14px;">数据加载中...</div>
+      </div>
+    </van-overlay>
+    <template v-if="!showChanlun">
     <!-- 基本信息栏 -->
     <div class="price-bar" v-if="priceData">
       <div class="price-main">
@@ -246,19 +254,27 @@
         ⚠ {{ validationFailed }}天数据不一致
       </span>
     </div>
+    </template>
+
+    <!-- 缠论 iframe（点击按钮后显示） -->
+    <template v-if="showChanlun">
+      <iframe :src="chanlunUrl" frameborder="0" style="width:100%;height:calc(100vh - 46px);border:none;"></iframe>
+    </template>
+
   </div>
 </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { showToast, showDialog, closeToast } from 'vant'
 import { getKline, getBigBuy, getBigBuyNet } from '../utils/api.js'
 import Sidebar from '../components/Sidebar.vue'
 
 const props = defineProps({ symbol: { type: String, default: '000001' } })
 const route = useRoute()
+const router = useRouter()
 
 const chartRef = ref(null)
 const macdChartRef = ref(null)
@@ -267,6 +283,19 @@ const bigbuyChartRef = ref(null)
 const ratioChartRef = ref(null)
 
 const period = ref('daily')
+
+// 缠论 iframe 模式
+const showChanlun = ref(false)
+const chanlunUrl = computed(() => '/tv/?code=' + (route.params.symbol || props.symbol))
+const pageLoading = ref(false)
+function onClickLeft() {
+  if (showChanlun.value) {
+    showChanlun.value = false
+  } else {
+    router.back()
+  }
+}
+
 const periods = [
   { key: 'daily', label: '日K' },
   { key: 'weekly', label: '周K' },
@@ -284,7 +313,7 @@ watch(() => route.params.symbol, (newSym) => {
 })
 
 function goToChanlun() {
-  window.open('/tv/', '_blank')
+  showChanlun.value = !showChanlun.value
 }
 
 function switchStock(symbol) {
@@ -837,7 +866,7 @@ onMounted(() => {
 })
 
 async function loadData() {
-  showToast({ message: '加载中...', type: 'loading', duration: 0 })
+  pageLoading.value = true
   try {
     const res = await getKline(route.params.symbol || props.symbol, {
       period: period.value,
@@ -922,9 +951,10 @@ async function loadData() {
 
     await nextTick()
     renderAllCharts()
-    closeToast()
+    pageLoading.value = false
   } catch (e) {
     console.error('❌ loadData 失败:', e, e.message)
+    pageLoading.value = false
     showToast({ message: '数据加载失败', type: 'fail' })
   }
 }
@@ -1692,6 +1722,16 @@ function showMenu() {
   overflow-y: auto;
   background: #fff;
   padding-bottom: 70px;
+  position: relative;
+}
+.loading-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 .price-bar {
   padding: 8px 16px;

@@ -1,6 +1,6 @@
 """诊断 cl2.py — 5分钟K线检查每个中枢离开笔与进入笔同向"""
 import sys
-sys.path.insert(0, '/home/dogzi/.openclaw/workspace/cl-vendors/chanlun-pro/src')
+sys.path.insert(0, '/home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro/src')
 
 import pandas as pd
 import sqlite3

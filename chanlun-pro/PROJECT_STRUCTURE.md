@@ -2,7 +2,7 @@
 
 > 生成日期: 2026-05-09
 > 基于 chanlun-pro (yijixiuxin) + a-stock-analyst (胖磊 🦞) 融合
-> 部署路径: `/home/dogzi/.openclaw/workspace/cl-vendors/chanlun-pro/`
+> 部署路径: `/home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro/`
 
 ---
 
@@ -391,7 +391,7 @@ Tailscale Funnel: https://dogzi-ms-7d73.tailbc211b.ts.net
 
 ```bash
 # 日线数据增量同步
-cd ~/.openclaw/workspace/cl-vendors/chanlun-pro
+cd ~/.openclaw/workspace/a-stock-analyst/chanlun-pro
 .venv/bin/python a_stock_backend/scripts/daily_sync.py
 
 # 盘口异动采集

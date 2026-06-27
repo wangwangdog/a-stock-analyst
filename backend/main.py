@@ -73,9 +73,31 @@ app.include_router(chain_router)   # 产业链知识图谱查询
 app.include_router(rss_router)     # RSS 新闻聚合
 
 # === 启动时数据检查 ===
+_chanlun_proc = None
+
 @app.on_event("startup")
 async def startup_check():
-    """启动时检查数据新鲜度，必要时提示更新"""
+    """启动时检查数据新鲜度，并启动 chanlun-pro 子进程"""
+    # 启动 chanlun-pro (9903) 作为子进程
+    global _chanlun_proc
+    try:
+        _chanlun_dir = Path(__file__).resolve().parent.parent / "chanlun-pro"
+        _chanlun_python = _chanlun_dir / ".venv" / "bin" / "python"
+        _chanlun_script = _chanlun_dir / "web" / "chanlun_chart" / "app.py"
+        if _chanlun_python.exists() and _chanlun_script.exists():
+            _chanlun_proc = subprocess.Popen(
+                [str(_chanlun_python), str(_chanlun_script), "nobrowser"],
+                cwd=str(_chanlun_dir),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            logger.info(f"[启动] chanlun-pro 子进程已启动 (PID {_chanlun_proc.pid})")
+        else:
+            logger.warning("[启动] chanlun-pro 脚本未找到，跳过")
+    except Exception as e:
+        logger.warning(f"[启动] chanlun-pro 启动失败: {e}")
+
+    # 原有的数据检查逻辑
     try:
         from data.cache import _get_conn
         conn = _get_conn()
@@ -95,6 +117,21 @@ async def startup_check():
             logger.info("[启动检查] 缓存中无历史数据，首次运行建议执行批量下载")
     except Exception as e:
         logger.debug(f"[启动检查] 数据检查跳过: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_chanlun():
+    """关闭时清理 chanlun-pro 子进程"""
+    global _chanlun_proc
+    if _chanlun_proc and _chanlun_proc.poll() is None:
+        _chanlun_proc.terminate()
+        try:
+            _chanlun_proc.wait(timeout=5)
+            logger.info(f"[关闭] chanlun-pro 子进程已终止 (PID {_chanlun_proc.pid})")
+        except Exception:
+            _chanlun_proc.kill()
+            logger.warning(f"[关闭] chanlun-pro 子进程已强制杀死 (PID {_chanlun_proc.pid})")
+        _chanlun_proc = None
 
 
 @app.get("/api/root")

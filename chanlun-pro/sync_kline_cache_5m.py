@@ -14,7 +14,7 @@ sync_kline_cache_5m.py — 用 TDX 同步 5分钟K线到 kline_cache
 import sys, os, time, json, argparse, traceback
 from pathlib import Path
 
-sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/cl-vendors/chanlun-pro/src"))
+sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))
 os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 
 import sqlite3

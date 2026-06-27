@@ -2,7 +2,7 @@
 """TDX补拉缺失日线"""
 import os, sys, sqlite3, time
 from pathlib import Path
-sys.path.insert(0, str(Path.home() / '.openclaw/workspace/cl-vendors/chanlun-pro/src'))
+sys.path.insert(0, str(Path.home() / '.openclaw/workspace/a-stock-analyst/chanlun-pro/src'))
 from chanlun.exchange.exchange_tdx import ExchangeTDX
 
 DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")

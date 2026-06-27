@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """增量补5m数据：检查旧5m周期 max_date，只拉TDX最新页补充缺失"""
 import sys, os, time, sqlite3
-sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/cl-vendors/chanlun-pro/src"))
+sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))
 os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 
 DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")

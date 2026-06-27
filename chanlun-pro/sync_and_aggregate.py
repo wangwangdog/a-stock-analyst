@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """增量补齐5m+聚合15m/30m/60m"""
 import sys, os, time, sqlite3
-sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/cl-vendors/chanlun-pro/src"))
+sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))
 os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 from chanlun.exchange.exchange_tdx import ExchangeTDX
 

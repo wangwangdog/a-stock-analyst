@@ -3,7 +3,7 @@
 """
 import sys
 import time
-sys.path.insert(0, '/home/dogzi/.openclaw/workspace/cl-vendors/chanlun-pro/a_stock_backend')
+sys.path.insert(0, '/home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro/a_stock_backend')
 from data.cache import _get_conn
 from strategies.fund_flow_collector import _compute_from_local, _save_records_local
 

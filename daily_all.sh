@@ -7,7 +7,7 @@ set -o pipefail  # 不设 -e，单个任务失败不影响后续
 
 export TZ=Asia/Shanghai
 DIR="/home/dogzi/.openclaw/workspace/a-stock-analyst"
-CL_DIR="/home/dogzi/.openclaw/workspace/cl-vendors/chanlun-pro"
+CL_DIR="/home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro"
 LOG="/tmp/daily_all_$(date +%Y%m%d).log"
 TODAY="$(date +%Y-%m-%d)"
 START_TS=$(date +%s)

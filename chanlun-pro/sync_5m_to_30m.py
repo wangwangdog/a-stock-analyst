@@ -9,7 +9,7 @@ sync_5m_to_30m.py — 从正确的 5m 数据聚合出 30m 写入 kline_cache
   4. 每 500 只 checkpoint
 """
 import sys, os, time, traceback
-sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/cl-vendors/chanlun-pro/src"))
+sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))
 
 import sqlite3
 import pandas as pd

@@ -1,6 +1,6 @@
 """验证数据库365天数据的修复效果"""
 import sys, os
-sys.path.insert(0, '/home/dogzi/.openclaw/workspace/cl-vendors/chanlun-pro/src')
+sys.path.insert(0, '/home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro/src')
 from chanlun.cl2 import CD, SHOW_LAST_BI_MERGE
 from chanlun.cl_utils import query_cl_chart_config
 import pandas as pd
