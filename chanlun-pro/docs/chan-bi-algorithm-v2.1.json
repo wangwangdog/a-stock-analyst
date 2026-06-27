@@ -1,0 +1,53 @@
+{
+ "name": "chan_bi_algorithm",
+ "version": "2.1",
+ "description": "缠论笔划分算法。新增连续性修正：不连续时自动将前一笔末端链接到下一笔起点。",
+ "stages": [
+ {
+ "stage": "cl_kline_merge",
+ "name": "K线包含处理",
+ "rules": {
+ "containment_determination": "A.high>=B.high且A.low<=B.low（A包含B）或反之",
+ "merge_direction": {
+ "direction_judgment": "前一根高低点均小于当前→上升；均大于当前→下降",
+ "upward_merge": "高点取更高，低点取更高",
+ "downward_merge": "高点取更低，低点取更低"
+ }
+ }
+ },
+ {
+ "stage": "bi_division",
+ "name": "笔划分",
+ "basic_conditions": {
+ "connection": "相邻候选分型中的'顶-底'或'底-顶'",
+ "direction": {"top_to_bottom": "下笔起点>终点", "bottom_to_top": "上笔终点>起点"},
+ "span": "≥5根CL K线",
+ "continuity": "上一笔终点=下一笔起点（验证条件）"
+ },
+ "constraints": {
+ "internal_extremum_bounded_by_endpoints": {
+ "rule_up": "上笔：所有K线high≤终点的顶值，所有K线low≥起点的底值",
+ "rule_down": "下笔：所有K线high≤起点的顶值，所有K线low≥终点的底值",
+ "strict": true
+ }
+ },
+ "continuity_fix": {
+ "description": "不连续时强制将前一笔末端链接到下一笔起点（时间+价格），debug_info标记'连续性修正'",
+ "trigger": "相邻笔 endpoint_of_previous != startpoint_of_next"
+ },
+ "pipeline": [
+ "1. 原始K线序列",
+ "2. K线包含处理（方向性合并）",
+ "3. CL K线序列",
+ "4. 纯分型生成",
+ "5. 分型预处理",
+ "6. 依次尝试连接（顶底/底顶）",
+ "7. 校验方向、跨度、极值、连续性",
+ "8. 校验内部极值不超出端点",
+ "9. 后向校验确定初步笔链",
+ "10. 连续性修正：不连续时前笔末端直链后笔起点",
+ "11. 输出最终笔链"
+ ]
+ }
+ ]
+}

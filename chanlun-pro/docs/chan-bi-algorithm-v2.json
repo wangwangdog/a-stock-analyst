@@ -1,0 +1,58 @@
+{
+ "name": "chan_bi_algorithm",
+ "version": "2.0",
+ "description": "缠论笔划分算法，包含K线包含处理（CL K线）和笔划分（BI）两个阶段。笔规则已包含内部极值不超过端点的约束。",
+ "stages": [
+ {
+ "stage": "cl_kline_merge",
+ "name": "K线包含处理（CL K线）",
+ "description": "将原始K线序列压缩为缠论K线（CL K线），消除相邻包含干扰，为分型和笔提供稳定输入。",
+ "rules": {
+ "target": "把原始K线序列压缩为缠论K线（CL Kline）序列，消除相邻K线的包含干扰",
+ "containment_determination": "A.high≥B.high 且 A.low≤B.low（A包含B）或反之（B包含A）",
+ "merge_direction": {
+ "direction_judgment": "前两根CLKline（h/l）决定趋势：前一根高低点均小于当前→上升趋势；均大于当前→下降趋势",
+ "upward_merge": "高点取更高者，低点也取更高者 (max(h), max(l))",
+ "downward_merge": "高点取更低者，低点取更低者 (min(h), min(l))",
+ "unknown_trend": "默认向下合并：高取更低，低取更低 (min(h), min(l))"
+ },
+ "noop_merge_skip": "当合并后的h/l均不变时（无变化合并），不更新k_index和n计数，该K线视为已被包含但不扩展范围",
+ "k_index_rule": "当新K线包含旧CLKline（new_contains_prev）且h/l有实质变化时，更新k_index为新K线索引",
+ "output_structure": ["k_index","h/l/o/c","n（合并计数）","klines（内含原始K线列表）","up_qs（最新合并方向）"]
+ }
+ },
+ {
+ "stage": "bi_division",
+ "name": "笔（BI）划分",
+ "description": "基于CL K线进行笔划分，遵循缠论笔规则。贪婪最近有效连接策略。",
+ "basic_conditions": {
+ "connection": "相邻候选分型中的'顶-底'或'底-顶'",
+ "direction": {
+ "top_to_bottom": "下笔，起点价>终点价",
+ "bottom_to_top": "上笔，终点价>起点价"
+ },
+ "span": "顶底之间的CLKline数≥5，或原始K线数≥5（二条件满足一即可）",
+ "continuity": "上一笔终点=下一笔起点"
+ },
+ "constraints": {
+ "adjacent_only": "不允许跨越中间分型直接跳连",
+ "internal_extremum_bounded_by_endpoints": {
+ "rule": "笔内所有CLKline和原始K线的high≤ding的val值，low≥di的val值",
+ "strict": true
+ },
+ "alternation": "笔方向必须交替（上下上下...），不允许连续同向笔"
+ },
+ "algorithm": "greedy_nearest_valid",
+ "algorithm_detail": "从每个分型开始，扫描后续异向分型，取首个通过全部约束检查的有效连接",
+ "pipeline": [
+ "1. 原始K线序列",
+ "2. K线包含处理（方向性合并，未知趋势默认向下）",
+ "3. CL K线序列",
+ "4. 纯分型生成（三K判定）",
+ "5. 贪婪最近有效成笔：逐个分型扫描，连接首个有效异向分型",
+ "6. 校验方向、跨度、内部极值、交替性",
+ "7. 输出笔链"
+ ]
+ }
+ ]
+}

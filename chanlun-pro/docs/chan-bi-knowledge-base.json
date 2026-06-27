@@ -1,0 +1,86 @@
+{
+ "name": "chan_bi_knowledge_base",
+ "version": "1.1",
+ "description": "缠论笔划分规则，仅定义笔（BI），不讨论段（XD）。新增规则：笔内任意K线最值不超端点。",
+ "scope": {
+ "level_chain": ["1m", "5m", "30m", "d", "w", "m"],
+ "note": "高一级别按该链向上取，当前阶段不讨论段"
+ },
+ "predefined_objects": {
+ "cl_k_line": {
+ "description": "包含关系处理后的K线",
+ "fields": ["time", "open", "high", "low", "close"]
+ },
+ "pure_fenxing": {
+ "description": "仅按三根CL K线高低点判定顶/底分型，不引入笔逻辑",
+ "rule": "顶分型：中间K线high > 左右high；底分型：中间K线low < 左右low",
+ "output": [
+ {"field": "type", "values": ["top", "bottom"]},
+ {"field": "index", "type": "integer"},
+ {"field": "price", "type": "float", "note": "顶取high，底取low"},
+ {"field": "done", "type": "boolean", "note": "未完成不参与成笔"}
+ ]
+ }
+ },
+ "basic_conditions": {
+ "connection": "相邻候选分型中的'顶-底'或'底-顶'",
+ "direction": {
+ "top_to_bottom": "下笔，要求起点价 > 终点价",
+ "bottom_to_top": "上笔，要求终点价 > 起点价"
+ },
+ "span": "顶底之间（含两端）至少5根CL K线",
+ "unfinished_fx": "done=False 不参与成笔",
+ "continuity": "上一笔终点 = 下一笔起点"
+ },
+ "constraints": {
+ "interval_overlap": "顶分型中间K线的区间必须与底分型中间K线的区间有部分重叠",
+ "adjacent_only": "不允许跨越中间分型直接跳连",
+ "extremum": "笔端点需是笔行程内的绝对最高/最低价",
+ "posterior_verify": "当前笔需可由其终点继续形成后续有效笔；末端可暂按'当前有效'处理",
+ "internal_extremum_bounded_by_endpoints": {
+ "description": "笔内任意CL K线的最高价和最低价不得超出笔的起点和终点价格所界定的范围",
+ "rule_up": "上笔（底→顶）：所有K线的high ≤ 终点的顶值，所有K线的low ≥ 起点的底值",
+ "rule_down": "下笔（顶→底）：所有K线的high ≤ 起点的顶值，所有K线的low ≥ 终点的底值",
+ "strict": true,
+ "note": "确保笔内部不会出现比端点更极端的价位，否则该笔无效"
+ }
+ },
+ "rule3": {
+ "name": "全局后续更极值回溯替换",
+ "description": "后续若出现更高顶/更低底，允许回溯替换候选端点，但仍需满足所有约束（含内部端点约束）",
+ "enable": true
+ },
+ "special_bi": {
+ "condition1": "连接两分型之间少于5根CL K线（常规跨度不足）",
+ "condition2": "本级别顶分型的顶值 = 高一级别某个顶分型顶值；本级别底分型的底值 = 高一级别某个底分型底值",
+ "time_matching": "比较应使用本级别周期的起始-结束时间区间（如周线按周起止、月线按月起止），而非仅单点时间",
+ "both_conditions_required": true,
+ "note": "特殊成笔同样需满足新增的 internal_extremum_bounded_by_endpoints 约束"
+ },
+ "posterior_consistency": {
+ "rule": "后向校验中的'是否存在后续可成对分型'应按统一规则判定：常规成笔有效 或 特殊成笔有效 均可作为后续成立依据"
+ },
+ "output_fields": {
+ "points": {
+ "start": {"time": "", "price": 0.0},
+ "end": {"time": "", "price": 0.0}
+ },
+ "linestyle": {"enum": ["finished", "unfinished"]},
+ "type": {"enum": ["up", "down"]},
+ "debug_info": "可选，用于可视化与问题定位，不改变成笔定义"
+ },
+ "debug_visual": {
+ "special_bi_fail_condition1_mark": "若特殊成笔条件1不成立（即跨度≥5却试图走特殊），标记'中'字",
+ "note": "仅用于验证，不参与成笔逻辑"
+ },
+ "pipeline": [
+ "获得CL K线序列",
+ "生成纯分型",
+ "分型预处理（用于成笔）",
+ "依次尝试连接（顶底/底顶）",
+ "校验方向、跨度、极值、连续性",
+ "校验内部极值不超出端点（新增步骤）",
+ "常规不满足时尝试特殊成笔（同样校验内部端点约束）",
+ "后向校验并确定笔链输出"
+ ]
+}

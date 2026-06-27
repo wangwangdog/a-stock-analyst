@@ -1,0 +1,52 @@
+# 数据库文件
+db/
+*.db
+*.sqlite
+*.sqlite3
+
+# 日志
+logs/
+*.log
+config/chan_log/
+
+# 缓存/临时
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# 备份
+backup_*/
+*.bak
+
+# 环境
+.venv/
+venv/
+uv.lock
+
+# 密钥
+pyarmor.rkey
+*.rkey
+
+# 评测结果
+eval_results/
+
+# 打包产物
+dist/
+build/
+
+# 产出/报告
+*.xlsx
+*.csv
+notebook/
+*.ipynb_checkpoints/
+
+# 编译产物
+*.pyo
+*.so
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
