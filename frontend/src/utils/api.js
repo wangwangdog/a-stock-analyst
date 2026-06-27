@@ -36,3 +36,7 @@ export function getBigDealSummary(symbol, limit = 60) {
 export function getBigBuySummary(symbol, limit = 60) {
   return api.get(`/big-buy-summary/${symbol}`, { params: { limit } })
 }
+
+export function getBigBuyNet(symbol, days = 60) {
+  return api.get(`/bigbuy-net/${symbol}`, { params: { days } })
+}

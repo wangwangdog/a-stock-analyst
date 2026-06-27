@@ -242,9 +242,9 @@
         <div class="sub-chart-label">大单买入数</div>
         <div class="sub-chart-canvas" ref="bigbuyChartRef" id="bigbuy-chart"></div>
       </div>
-      <!-- 有大买单 子图（来自 big_buy_summary） -->
+      <!-- 大单净额 子图（±柱状图） -->
       <div class="sub-chart-item" v-show="showBigBuy">
-        <div class="sub-chart-label">有大买单</div>
+        <div class="sub-chart-label">大单净额</div>
         <div class="sub-chart-canvas" ref="ratioChartRef" id="ratio-chart"></div>
       </div>
       <!-- CR 指标 子图 -->
@@ -291,7 +291,7 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { showToast, showDialog, closeToast } from 'vant'
-import { getKline, getBigBuy, getBigBuySummary } from '../utils/api.js'
+import { getKline, getBigBuy, getBigBuyNet } from '../utils/api.js'
 
 const props = defineProps({ symbol: { type: String, default: '000001' } })
 const route = useRoute()
@@ -490,7 +490,7 @@ const stockName = ref('')
 const dataSource = ref('')
 const validationFailed = ref(0)
 const bigbuyData = ref([])
-const bigDealData = ref([])
+const bigDealNetData = ref([])  // 大单净额数据
 
 // AI 分析结果
 const aiResult = ref({ title: '', text: '', visible: false })
@@ -925,16 +925,16 @@ async function loadData() {
       }
     }
 
-    // 加载大笔买入数据（仅日线）
+    // 加载大单净额数据（仅日线）— subchart2 用
     if (showBigBuy.value) {
       try {
-        const bdRes = await getBigBuySummary(route.params.symbol || props.symbol, 60)
-        bigDealData.value = bdRes.data.data || []
+        const netRes = await getBigBuyNet(route.params.symbol || props.symbol, 60)
+        bigDealNetData.value = netRes.data.data || []
       } catch (e) {
-        bigDealData.value = []
+        bigDealNetData.value = []
       }
     } else {
-      bigDealData.value = []
+      bigDealNetData.value = []
     }
 
     // 加载大单数据（仅日线）
@@ -1416,17 +1416,6 @@ function renderBigbuyChart(lw, times) {
 
   if (bbData.length) bigbuyHistogram.setData(bbData)
   else bigbuyHistogram.setData([{ time: times[0] || '', value: 0 }])
-  
-  // 零轴基线
-  try {
-    bigbuyHistogram.createPriceLine({
-      price: 0,
-      color: '#999',
-      lineWidth: 1,
-      lineStyle: 2,
-      axisLabelVisible: false,
-    })
-  } catch(e) {}
 
   // 柱顶标注大笔买数
   try {
@@ -1452,12 +1441,11 @@ function renderBigbuyChart(lw, times) {
   }
 }
 
-// ====== 有大买单子图（参照大单买入数实现） ======
+// ====== 大单净额子图（±柱状图，0轴） ======
 function renderRatioChart(lw, times) {
   if (!ratioChartRef.value) return
   const { createChart, ColorType, HistogramSeries } = lw
   
-  // 使用子图自身宽度，fallback到主K线图宽度
   const subWidth = ratioChartRef.value.clientWidth || chartRef.value?.clientWidth || 360
 
   ratioChart = createChart(ratioChartRef.value, {
@@ -1486,58 +1474,54 @@ function renderRatioChart(lw, times) {
   })
 
   ratioHistogram = ratioChart.addSeries(HistogramSeries, {
-    color: 'rgba(238, 10, 36, 0.5)',
     priceFormat: { type: 'volume', precision: 0 },
     lastValueVisible: false,
   })
 
-  // 无数据则显示空图表（不return，避免图表实例丢失）
-  if (!bigDealData.value.length) {
-    ratioHistogram.setData([{ time: times[0] || '', value: 0 }])
-    return
-  }
-
-  // 构建完整的日期序列，与 K线时间轴对齐
-  const bdMap = {}
-  bigDealData.value.forEach(d => { bdMap[d.date.slice(0, 10)] = d })
-
-  const chartData = klineData.value.map((d, i) => {
-    const date = d.date.slice(0, 10)
-    const match = bdMap[date]
-    const val = match ? (match.amount || match.lots || 0) : 0
-    return {
-      time: times[i],
-      value: val,
-      color: match ? (val >= 0 ? 'rgba(238, 10, 36, 0.7)' : 'rgba(22, 163, 74, 0.7)') : 'rgba(238, 10, 36, 0.05)',
-    }
-  })
-
-  if (chartData.length) ratioHistogram.setData(chartData)
-  
   // 零轴基线
   try {
     ratioHistogram.createPriceLine({
       price: 0,
       color: '#999',
       lineWidth: 1,
-      lineStyle: 2, // dashed
+      lineStyle: 2,
       axisLabelVisible: false,
     })
   } catch(e) {}
 
-  // 柱顶标注次数
+  if (!bigDealNetData.value.length) {
+    ratioHistogram.setData([{ time: times[0] || '', value: 0 }])
+    return
+  }
+
+  const ndMap = {}
+  bigDealNetData.value.forEach(d => { ndMap[d.date.slice(0, 10)] = d.net_amount })
+
+  const chartData = klineData.value.map((d, i) => {
+    const date = d.date.slice(0, 10)
+    const val = ndMap[date] !== undefined ? ndMap[date] : 0
+    return {
+      time: times[i],
+      value: val,
+      color: val >= 0 ? 'rgba(238,10,36,0.75)' : 'rgba(7,193,96,0.75)',
+    }
+  })
+
+  ratioHistogram.setData(chartData)
+
+  // 柱顶标注
   try {
     const markers = []
     klineData.value.forEach((d, i) => {
       const date = d.date.slice(0, 10)
-      const match = bdMap[date]
-      if (match && match.count > 0) {
+      const val = ndMap[date]
+      if (val !== undefined && val !== 0) {
         markers.push({
           time: times[i],
-          position: 'aboveBar',
-          color: 'rgba(238, 10, 36, 0.85)',
-          shape: 'arrowUp',
-          text: String(Math.round(match.amount || match.lots || 0)),
+          position: val >= 0 ? 'aboveBar' : 'belowBar',
+          color: val >= 0 ? '#ee0a24' : '#07c160',
+          shape: val >= 0 ? 'arrowUp' : 'arrowDown',
+          text: (val / 10000).toFixed(0) + '万',
         })
       }
     })

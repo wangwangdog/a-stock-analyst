@@ -411,15 +411,15 @@ async def get_health():
 
 @router.get("/bigbuy/{symbol}")
 async def get_bigbuy(symbol: str, days: int = Query(60, description="回溯天数")):
-    """获取大单买入量数据（来自 big_deal_summary 表）"""
+    """获取大单买入量数据（来自 hzeveryday 表 — 大笔买数）"""
     from data.cache import _get_conn
     conn = _get_conn()
     try:
         bare = symbol.split('.')[-1] if '.' in symbol else symbol
         rows = conn.execute(
-            "SELECT trade_date, big_buy_count, big_buy_amount "
-            "FROM big_deal_summary "
-            "WHERE symbol=? ORDER BY trade_date DESC LIMIT ?",
+            "SELECT 买入日期, 大笔买数, 合计金额, 合计手数 "
+            "FROM hzeveryday "
+            "WHERE 股票代码=? ORDER BY 买入日期 DESC LIMIT ?",
             (bare, days)
         ).fetchall()
         if not rows:
@@ -430,8 +430,33 @@ async def get_bigbuy(symbol: str, days: int = Query(60, description="回溯天�
                 "date": row[0],
                 "count": row[1],
                 "amount": row[2],
-                "volume": row[1],
+                "lots": row[3],
+                "volume": row[1],  # 兼容旧字段名
             })
+        data.sort(key=lambda x: x["date"])
+        return {"status": "ok", "data": data, "total": len(data)}
+    except Exception as e:
+        return {"status": "failed", "data": [], "message": str(e)}
+    finally:
+        conn.close()
+
+
+@router.get("/bigbuy-net/{symbol}")
+async def get_bigbuy_net(symbol: str, days: int = Query(60, description="回溯天数")):
+    """获取大单净流入数据（来自 stock_fund_flow 表 — 大单净额）"""
+    from data.cache import _get_conn
+    conn = _get_conn()
+    try:
+        bare = symbol.split('.')[-1] if '.' in symbol else symbol
+        rows = conn.execute(
+            "SELECT trade_date, big_inflow "
+            "FROM stock_fund_flow "
+            "WHERE symbol=? ORDER BY trade_date DESC LIMIT ?",
+            (bare, days)
+        ).fetchall()
+        if not rows:
+            return {"status": "ok", "data": [], "message": "无大单净流入数据"}
+        data = [{"date": r[0], "net_amount": r[1]} for r in rows]
         data.sort(key=lambda x: x["date"])
         return {"status": "ok", "data": data, "total": len(data)}
     except Exception as e:
