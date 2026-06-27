@@ -6,7 +6,7 @@ import pandas as pd
 from loguru import logger
 
 from config import VALIDATION_TOLERANCE
-from . import akshare_fetcher, baostock_fetcher
+from . import akshare_fetcher, baostock_fetcher, stock_api_fetcher
 from .cache import save_kline, get_kline, log_check, is_cache_fresh
 
 
@@ -43,7 +43,17 @@ def fetch_kline_cross_checked(symbol: str, start_date: str = None, end_date: str
         result["message"] = "使用缓存数据"
         return result
 
-    # 2. 无缓存时尝试网络（AKShare）
+    # 2. 无缓存时尝试网络（stock-api HTTP 直连，速度最快）
+    df_sa = stock_api_fetcher.get_daily_kline(symbol, start_date, end_date)
+    if df_sa is not None and not df_sa.empty:
+        save_kline(symbol, "stock-api", df_sa)
+        result["primary"] = df_sa
+        result["source"] = "stock-api"
+        result["status"] = "ok"
+        result["message"] = "stock-api HTTP 实时数据"
+        return result
+
+    # 3. 无缓存时尝试网络（AKShare）
     df_ak = akshare_fetcher.get_daily_kline(symbol, start_date, end_date)
     if df_ak is not None and not df_ak.empty:
         save_kline(symbol, "akshare", df_ak)
@@ -53,7 +63,7 @@ def fetch_kline_cross_checked(symbol: str, start_date: str = None, end_date: str
         result["message"] = "AKShare 实时数据"
         return result
 
-    # 3. 无缓存时尝试网络（Baostock）
+    # 4. 无缓存时尝试网络（Baostock）
     df_bs = baostock_fetcher.get_daily_kline(symbol, start_date, end_date)
     if df_bs is not None and not df_bs.empty:
         save_kline(symbol, "baostock", df_bs)
@@ -63,7 +73,7 @@ def fetch_kline_cross_checked(symbol: str, start_date: str = None, end_date: str
         result["message"] = "Baostock 实时数据"
         return result
 
-    # 4. 所有数据源均不可用
+    # 5. 所有数据源均不可用
     result["status"] = "failed"
     result["message"] = "所有数据源均不可用"
     return result
@@ -152,6 +162,7 @@ def check_data_health(symbol: str = None) -> dict:
     status = {
         "akshare": {"available": akshare_fetcher.available(), "cached_days": 0},
         "baostock": {"available": baostock_fetcher.available(), "cached_days": 0},
+        "stock-api": {"available": stock_api_fetcher.available(), "cached_days": 0},
         "last_check": None,
         "failed_dates": [],
     }
@@ -189,6 +200,13 @@ def check_data_health(symbol: str = None) -> dict:
         row = cursor.fetchone()
         if row:
             status["baostock"]["cached_days"] = row[0]
+
+        cursor = conn.execute(
+            "SELECT COUNT(DISTINCT trade_date) FROM kline_cache WHERE source='stock-api'"
+        )
+        row = cursor.fetchone()
+        if row:
+            status["stock-api"]["cached_days"] = row[0]
 
     finally:
         conn.close()

@@ -59,31 +59,22 @@ async def get_kline(
         else:
             start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
 
-    # 分钟级K线：优先从 TDX 缓存读取，备用 AKShare
+    # 分钟级K线：通过 DataProvider 自动兜底（Tencent → mootdx → AKShare）
     if period in ("5min", "15min", "30min", "60min"):
         period_map = {"5min": "5m", "15min": "15m", "30min": "30m", "60min": "60m"}
-        tdx_period = period_map[period]
+        dl_period = period_map[period]
 
-        # 尝试从 TDX 缓存读取
-        from data.cache import get_kline, save_kline
-        df = get_kline(symbol, "tdx", start_date=start_date, end_date=end_date, period=tdx_period)
-
-        source = "tdx"
-        if df is None or df.empty:
-            # TDX 无数据，降级到 AKShare
-            source = "akshare"
-            minute_num = tdx_period.replace("m", "")  # "5m" -> "5", "15m" -> "15"
-            df = akshare_fetcher.get_minute_kline(symbol, minute_num, start_date, end_date)
+        # 使用 DataProvider 获取（自动缓存 + 多源兜底）
+        from data.download_provider import get_kline as provider_get_kline
+        df = provider_get_kline(symbol, period=dl_period, start=start_date, end=end_date)
 
         if df is None or df.empty:
             return KlineResponse(
-                symbol=symbol, period=period, data=[], source=source,
-                status="failed", message="获取分钟级数据失败"
+                symbol=symbol, period=period, data=[], source=dl_period,
+                status="failed", message="所有分钟级数据源均不可用"
             )
 
-        # 缓存分钟级数据（如果是 AKShare 拉取的）
-        if source == "akshare":
-            save_kline(symbol, "akshare", df, period=period)
+        source = df.attrs.get("source", dl_period)
 
         # 准备返回数据
         data_list = []
@@ -121,7 +112,7 @@ async def get_kline(
             source=source,
             status="ok",
             name=name,
-            message=f"分钟级K线 (source={source}, period={tdx_period})，共 {len(data_list)} 条",
+            message=f"分钟级K线 (source={source}, period={dl_period})，共 {len(data_list)} 条",
         )
 
     # 日/周/月 - 优先从 sequoia.db 读取日线
@@ -160,7 +151,9 @@ async def get_kline(
         df = pd.DataFrame(kline_data)
         if "date" in df.columns:
             df = df.rename(columns={"date": "trade_date"})
-        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        df["trade_date"] = pd.to_datetime(df["trade_date"], format='mixed')
+        # 去重（sequoia 数据可能有重复日期）
+        df = df.drop_duplicates(subset=["trade_date"]).sort_values("trade_date")
         
         data_list = []
         for _, row in df.iterrows():
@@ -205,7 +198,7 @@ async def get_kline(
                     extra_df = pd.DataFrame(extra_rows)
                     if "date" in extra_df.columns:
                         extra_df = extra_df.rename(columns={"date": "trade_date"})
-                    extra_df["trade_date"] = pd.to_datetime(extra_df["trade_date"])
+                    extra_df["trade_date"] = pd.to_datetime(extra_df["trade_date"], format='mixed')
                     # 金额列名兼容
                     if "turnover" in extra_df.columns and "amount" not in extra_df.columns:
                         extra_df = extra_df.rename(columns={"turnover": "amount"})
@@ -259,32 +252,38 @@ async def get_kline(
 
 @router.get("/big-buy-summary/{symbol}")
 async def get_big_buy_summary(symbol: str, limit: int = 60):
-    """获取某只股票的有大买单历史数据（按日汇总）"""
+    """获取资金流入数据（来自 stock_fund_flow 表）"""
     from data.cache import DB_PATH
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        """SELECT trade_date, COUNT(*) as cnt, SUM(qty) as total_qty, SUM(amount) as total_amount
-           FROM big_buy_summary
-           WHERE symbol=?
-           GROUP BY trade_date
-           ORDER BY trade_date DESC
-           LIMIT ?""",
-        (symbol, limit)
-    ).fetchall()
-    conn.close()
-    return {
-        "symbol": symbol,
-        "data": [
-            {
-                "date": r[0],
-                "count": r[1],
-                "qty": r[2],
-                "amount": r[3],
-            }
-            for r in rows
-        ]
-    }
+    try:
+        bare = symbol.split('.')[-1] if '.' in symbol else symbol
+        rows = conn.execute(
+            "SELECT trade_date, main_inflow FROM stock_fund_flow "
+            "WHERE symbol=? ORDER BY trade_date DESC LIMIT ?",
+            (bare, limit)
+        ).fetchall()
+        if not rows:
+            rows = conn.execute(
+                "SELECT trade_date, main_inflow FROM stock_fund_flow_local "
+                "WHERE symbol=? ORDER BY trade_date DESC LIMIT ?",
+                (bare, limit)
+            ).fetchall()
+        return {
+            "symbol": symbol,
+            "data": [
+                {
+                    "date": r[0],
+                    "qty": round(r[1], 2),
+                    "count": 1 if abs(r[1]) > 0 else 0,
+                }
+                for r in rows
+            ]
+        }
+    except Exception as e:
+        return {"symbol": symbol, "data": []}
+    finally:
+        conn.close()
 
 
 @router.get("/big-deal-summary/{symbol}")
@@ -316,6 +315,30 @@ async def get_big_deal_summary(symbol: str, limit: int = 60):
             for r in rows
         ]
     }
+
+
+@router.get("/big-buy-days/{symbol}")
+async def get_big_buy_days(symbol: str):
+    """获取近5/10/20日内有大单买入的天数（与左侧排名同源: hzeveryday.大笔买数）"""
+    from data.cache import DB_PATH
+    import sqlite3
+    # 去前缀
+    bare = symbol.split('.')[-1] if '.' in symbol else symbol
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        """SELECT 买入日期, 大笔买数 FROM hzeveryday
+           WHERE 股票代码=?
+           ORDER BY 买入日期 DESC LIMIT 20""",
+        (bare,)
+    ).fetchall()
+    conn.close()
+
+    d = [(r[0], r[1] > 0) for r in rows]
+    d5  = sum(1 for _, has in d[:5] if has)
+    d10 = sum(1 for _, has in d[:10] if has)
+    d20 = sum(1 for _, has in d[:20] if has)
+
+    return {"symbol": symbol, "d5": d5, "d10": d10, "d20": d20}
 
 
 @router.get("/stocks")
@@ -388,26 +411,17 @@ async def get_health():
 
 @router.get("/bigbuy/{symbol}")
 async def get_bigbuy(symbol: str, days: int = Query(60, description="回溯天数")):
-    """获取大单买入量数据（来自 hzeveryday 表）"""
+    """获取大单买入量数据（来自 big_deal_summary 表）"""
     from data.cache import _get_conn
     conn = _get_conn()
     try:
-        # 代码匹配：前端传 000001，数据库可能存为 1 或 000001
-        # 生成多个匹配模式
-        code_clean = symbol.lstrip("0")  # "000001" -> "1"
-        code_patterns = [symbol, code_clean]
-        if code_clean and code_clean != symbol:
-            code_patterns.append(f"%{code_clean}")
-
-        placeholders = ",".join(["?"] * len(code_patterns))
-        cursor = conn.execute(f"""
-            SELECT 买入日期, 大笔买数, 合计金额, 合计手数
-            FROM hzeveryday
-            WHERE 股票代码 IN ({placeholders})
-            ORDER BY 买入日期 DESC
-            LIMIT ?
-        """, (*code_patterns, days))
-        rows = cursor.fetchall()
+        bare = symbol.split('.')[-1] if '.' in symbol else symbol
+        rows = conn.execute(
+            "SELECT trade_date, big_buy_count, big_buy_amount "
+            "FROM big_deal_summary "
+            "WHERE symbol=? ORDER BY trade_date DESC LIMIT ?",
+            (bare, days)
+        ).fetchall()
         if not rows:
             return {"status": "ok", "data": [], "message": "无大单买入数据"}
         data = []
@@ -416,7 +430,7 @@ async def get_bigbuy(symbol: str, days: int = Query(60, description="回溯天�
                 "date": row[0],
                 "count": row[1],
                 "amount": row[2],
-                "volume": row[3],
+                "volume": row[1],
             })
         data.sort(key=lambda x: x["date"])
         return {"status": "ok", "data": data, "total": len(data)}
@@ -446,6 +460,104 @@ async def get_bigbuy_rank():
         {"symbol": r[0], "name": r[1] or "", "days": r[2], "total_buys": r[3]}
         for r in rows
     ]
+
+
+@router.get("/stock-supplement/{symbol}")
+async def get_stock_supplement(symbol: str):
+    """个股补充数据 — 腾讯实时行情 (PE/PB/市值/换手率/涨跌停价)"""
+    from data.tencent_quote import fetch_one
+    data = fetch_one(symbol)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"股票 {symbol} 无数据")
+    return data
+
+
+@router.get("/stock-supplement-batch")
+async def get_stock_supplement_batch(codes: str):
+    """批量个股补充数据 — 逗号分隔代码"""
+    from data.tencent_quote import fetch
+    symbols = [c.strip() for c in codes.split(",") if c.strip()]
+    if not symbols:
+        raise HTTPException(status_code=400, detail="请提供股票代码")
+    data = fetch(symbols)
+    return {"stocks": data, "count": len(data)}
+
+
+@router.get("/stock-full-context/{symbol}")
+async def get_stock_full_context(symbol: str):
+    """F13 完整上下文预取 — 并行取所有可用数据"""
+    import concurrent.futures
+    from data.tencent_quote import fetch_one
+    from data.cache import _get_conn as _gc
+
+    results = {"symbol": symbol}
+
+    def _quote():
+        return fetch_one(symbol) or {}
+
+    def _bigdeal():
+        conn = _gc()
+        try:
+            rows = conn.execute(
+                "SELECT trade_date, big_buy_count, big_buy_amount FROM big_deal_summary "
+                "WHERE symbol=? ORDER BY trade_date DESC LIMIT 5",
+                (symbol,)
+            ).fetchall()
+            return [{"date": r[0], "count": r[1], "amount": r[2]} for r in rows]
+        finally:
+            conn.close()
+
+    def _cr():
+        conn = _gc()
+        try:
+            rows = conn.execute(
+                "SELECT trade_date, cr FROM stock_cr_indicator "
+                "WHERE symbol=? ORDER BY trade_date DESC LIMIT 3",
+                (symbol,)
+            ).fetchall()
+            return [{"date": r[0], "cr": r[1]} for r in rows]
+        finally:
+            conn.close()
+
+    def _strategies():
+        from data.sequoia_engine import query_stock_strategies
+        return query_stock_strategies(symbol)
+
+    def _fundflow():
+        conn = _gc()
+        try:
+            rows_f = conn.execute(
+                "SELECT trade_date, main_inflow FROM stock_fund_flow "
+                "WHERE symbol=? ORDER BY trade_date DESC LIMIT 3",
+                (symbol,)
+            ).fetchall()
+            rows_l = conn.execute(
+                "SELECT trade_date, main_inflow FROM stock_fund_flow_local "
+                "WHERE symbol=? ORDER BY trade_date DESC LIMIT 3",
+                (symbol,)
+            ).fetchall()
+            return {
+                "national": [{"date": r[0], "main_inflow": r[1]} for r in rows_f],
+                "local": [{"date": r[0], "net_main_inflow": r[1]} for r in rows_l],
+            }
+        finally:
+            conn.close()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        fs = {
+            "quote": pool.submit(_quote),
+            "bigdeal": pool.submit(_bigdeal),
+            "cr": pool.submit(_cr),
+            "strategies": pool.submit(_strategies),
+            "fundflow": pool.submit(_fundflow),
+        }
+        for key, f in fs.items():
+            try:
+                results[key] = f.result()
+            except Exception as e:
+                results[key] = {"error": str(e)}
+
+    return results
 
 
 @router.get("/screener")

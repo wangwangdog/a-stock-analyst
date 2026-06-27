@@ -254,9 +254,11 @@ def main():
                             latest_day = (now - timedelta(days=2)).strftime("%Y-%m-%d")
                         else:
                             latest_day = now.strftime("%Y-%m-%d")
-                        if trade_date_part == latest_day or trade_date_part >= "2026-05-21":
+                        # 只跳过当天（避免重复），其他日期正常同步
+                        if trade_date_part == latest_day:
                             total_skip += 1
                             continue
+                        # 删除硬编码日期判断，允许同步所有历史数据
 
                 bars = fetch_and_save(api, code, freq, freq_config["cat"], pages=args.pages)
                 if bars < 0:

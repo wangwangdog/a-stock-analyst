@@ -9,6 +9,28 @@
       </template>
     </van-nav-bar>
 
+    <!-- 盘前/盘中策略按钮 -->
+    <div class="pre-intra-buttons">
+      <van-button
+        class="pre-btn"
+        icon="clock-o"
+        size="small"
+        plain
+        type="warning"
+        :loading="preLoading"
+        @click="runPreMarket"
+      >🌅 盘前策略</van-button>
+      <van-button
+        class="intra-btn"
+        icon="trending-up"
+        size="small"
+        plain
+        type="danger"
+        :loading="intraLoading"
+        @click="runIntraday"
+      >⚡ 盘中策略</van-button>
+    </div>
+
     <!-- 模式切换 Tab -->
     <van-tabs v-model:active="mode" sticky>
       <van-tab title="📊 策略选股">
@@ -358,6 +380,44 @@ const screenTotal = ref(0)
 const screening = ref(false)
 const screenSearched = ref(false)
 
+// ===== 盘前/盘中策略 =====
+const preLoading = ref(false)
+const intraLoading = ref(false)
+
+async function runPreMarket() {
+  preLoading.value = true
+  try {
+    const r = await fetch('/api/v1/strategy/pre-market', { method: 'POST' })
+    const data = await r.json()
+    if (data.status === 'ok') {
+      showDialog({ title: '🌅 盘前策略', message: data.report || JSON.stringify(data.result?.slice(0, 10) || [], null, 2) })
+    } else {
+      showToast({ message: data.error || '盘前策略执行失败', type: 'fail' })
+    }
+  } catch (e) {
+    showToast({ message: '请求失败', type: 'fail' })
+  } finally {
+    preLoading.value = false
+  }
+}
+
+async function runIntraday() {
+  intraLoading.value = true
+  try {
+    const r = await fetch('/api/v1/strategy/intraday', { method: 'POST' })
+    const data = await r.json()
+    if (data.status === 'ok') {
+      showDialog({ title: '⚡ 盘中策略', message: data.report || JSON.stringify(data.result?.slice(0, 10) || [], null, 2) })
+    } else {
+      showToast({ message: data.error || '盘中策略执行失败', type: 'fail' })
+    }
+  } catch (e) {
+    showToast({ message: '请求失败', type: 'fail' })
+  } finally {
+    intraLoading.value = false
+  }
+}
+
 const STRATEGY_LABELS = {
   ma_volume: '均线放量',
   turtle_trade: '海龟交易',
@@ -587,4 +647,19 @@ onMounted(() => loadAll())
   color: #666;
   line-height: 1.3;
 }
+
+.pre-intra-buttons {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+}
+.pre-intra-buttons .van-button {
+  flex: 1;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.pre-btn { background: #fff8e1; }
+.intra-btn { background: #ffebee; }
 </style>

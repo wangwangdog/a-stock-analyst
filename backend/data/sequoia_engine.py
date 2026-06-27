@@ -163,7 +163,27 @@ def daily_sync(progress_callback=None) -> dict:
     日常同步：增量拉 baostock 数据 + 跑策略 + 写 strategy_picks。
 
     多线程并行跑策略，每完成一个通过 progress_callback 通知。
+    支持 Thread 检查点恢复（改善4 — 12-Factor F5/F6）。
     """
+    today = date.today().strftime("%Y-%m-%d")
+    thread_id = f"sequoia_{today}"
+
+    # 检查是否有未完成的线程需要恢复
+    try:
+        from data.thread_manager import get_recovery_context, start, checkpoint
+        ctx = get_recovery_context(thread_id)
+        if ctx["found"] and ctx["status"] in ("running", "paused"):
+            import logging
+            logging.getLogger("sequoia_engine").warning(
+                f"[sequoia] 发现未完成的线程 {thread_id}，跳过重复执行"
+            )
+        else:
+            start(thread_id, "sequoia_daily_sync", {
+                "date": today, "max_stocks": 5087
+            })
+    except ImportError:
+        pass
+
     _init_picks_table()
     settings = _get_settings()
     engine = _get_engine()
@@ -171,6 +191,14 @@ def daily_sync(progress_callback=None) -> dict:
     # 增量数据同步
     count = engine.sync_today_bulk()
     total_symbols = len(engine.get_local_symbols())
+
+    try:
+        from data.thread_manager import checkpoint as _cp
+        _cp(thread_id, "data_sync", "done", {
+            "count": count, "total_symbols": total_symbols
+        })
+    except ImportError:
+        pass
 
     # 跑全部策略（并行）
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -231,6 +259,12 @@ def daily_sync(progress_callback=None) -> dict:
     picks_by_strategy = {}
     for key, sym in all_picks:
         picks_by_strategy.setdefault(key, []).append(sym)
+
+    try:
+        from data.thread_manager import finish as _finish
+        _finish(thread_id, "done")
+    except ImportError:
+        pass
 
     return {
         "status": "ok",

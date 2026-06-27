@@ -858,7 +858,20 @@ async function loadData() {
       ma_periods: maParamStr.value,
     })
     const data = res.data
-    klineData.value = data.data || []
+    // 数据清洗：去重 + 绝对值修正 high/low
+    let raw = data.data || []
+    const seen = new Map()
+    for (const d of raw) {
+      // 绝对值修正：high = max(open, close, 原始high, 原始low)
+      // low = min(open, close, 原始high, 原始low)
+      // 原始数据源存在 H/L 倒挂，简单 swap 不够（swap 后 low 可能还在 body 内）
+      const vals = [d.open, d.close, d.high, d.low]
+      d.high = Math.max(...vals)
+      d.low = Math.min(...vals)
+      // 按 date 去重（保留最后一个）
+      seen.set(d.date, d)
+    }
+    klineData.value = Array.from(seen.values())
     indData.value = data.indicators || {}
     dataSource.value = data.source
     stockName.value = data.name || ''
@@ -869,9 +882,9 @@ async function loadData() {
     }
 
     // 最新价格
-    if (data.data && data.data.length > 0) {
-      const last = data.data[data.data.length - 1]
-      const prev = data.data.length > 1 ? data.data[data.data.length - 2] : last
+    if (klineData.value.length > 0) {
+      const last = klineData.value[klineData.value.length - 1]
+      const prev = klineData.value.length > 1 ? klineData.value[klineData.value.length - 2] : last
       priceData.value = {
         ...last,
         pct: prev.close ? ((last.close - prev.close) / prev.close * 100) : 0
@@ -975,34 +988,38 @@ function renderAllCharts() {
   if (!chartRef.value || !klineData.value.length) return
 
   import('lightweight-charts').then(LW => {
-    const lw = LW.default || LW
-    lwModuleCache = lw
+    try {
+      const lw = LW.default || LW
+      lwModuleCache = lw
 
-    // 销毁旧图表
-    destroyAllCharts()
+      // 销毁旧图表
+      destroyAllCharts()
 
-    // 计算统一的时间数据
-    const times = klineData.value.map(d => makeTime(d))
+      // 计算统一的时间数据
+      const times = klineData.value.map(d => makeTime(d))
 
-    // 主K线图
-    renderMainChart(lw, times)
-    // MACD子图
-    renderMacdChart(lw, times)
-    // 大单买入数子图
-    if (showBigBuy.value) {
-      renderBigbuyChart(lw, times)
+      // 主K线图
+      renderMainChart(lw, times)
+      // MACD子图
+      renderMacdChart(lw, times)
+      // 大单买入数子图
+      if (showBigBuy.value) {
+        renderBigbuyChart(lw, times)
+      }
+      // 有大买单子图
+      if (showBigBuy.value) {
+        renderRatioChart(lw, times)
+      }
+      // CR 子图
+      if (crData.value.length) {
+        renderCrChart(lw, times)
+      }
+
+      // 初始对齐时间轴
+      setupTimeScaleSync()
+    } catch(e) {
+      console.error('🐛 renderAllCharts error:', e.message, e.stack?.substring(0,500))
     }
-    // 有大买单子图
-    if (showBigBuy.value) {
-      renderRatioChart(lw, times)
-    }
-    // CR 子图
-    if (crData.value.length) {
-      renderCrChart(lw, times)
-    }
-
-    // 初始对齐时间轴
-    setupTimeScaleSync()
   })
 }
 
@@ -1053,11 +1070,11 @@ function renderMainChart(lw, times) {
   // K线
   candleSeries = mainChart.addSeries(CandlestickSeries, {
     upColor: '#ee0a24',
-    downColor: '#07c160',
+    downColor: '#16a34a',
     borderUpColor: '#ee0a24',
-    borderDownColor: '#07c160',
+    borderDownColor: '#16a34a',
     wickUpColor: '#ee0a24',
-    wickDownColor: '#07c160',
+    wickDownColor: '#16a34a',
   })
 
   const candles = klineData.value.map((d, i) => ({
@@ -1081,7 +1098,7 @@ function renderMainChart(lw, times) {
   const volumes = klineData.value.map((d, i) => ({
     time: times[i],
     value: d.volume || 0,
-    color: d.close >= d.open ? 'rgba(238,10,36,0.3)' : 'rgba(7,193,96,0.3)',
+    color: d.close >= d.open ? 'rgba(238,10,36,0.3)' : 'rgba(22,163,74,0.3)',
   }))
   volSeries.setData(volumes)
 
@@ -1424,7 +1441,7 @@ function renderRatioChart(lw, times) {
   })
 
   ratioHistogram = ratioChart.addSeries(HistogramSeries, {
-    color: 'rgba(255, 165, 0, 0.7)',
+    color: 'rgba(238, 10, 36, 0.5)',
     priceFormat: { type: 'volume', precision: 0 },
     lastValueVisible: false,
   })
@@ -1446,7 +1463,7 @@ function renderRatioChart(lw, times) {
     return {
       time: times[i],
       value: val,
-      color: match ? 'rgba(255, 165, 0, 0.7)' : 'rgba(255, 165, 0, 0.05)',
+      color: match ? (val >= 0 ? 'rgba(238, 10, 36, 0.7)' : 'rgba(22, 163, 74, 0.7)') : 'rgba(238, 10, 36, 0.05)',
     }
   })
 
@@ -1462,7 +1479,7 @@ function renderRatioChart(lw, times) {
         markers.push({
           time: times[i],
           position: 'aboveBar',
-          color: '#ff8c00',
+          color: val >= 0 ? '#ee0a24' : '#16a34a',
           shape: 'arrowUp',
           text: String(match.qty || match.count || 0),
         })

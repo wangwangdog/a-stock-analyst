@@ -27,7 +27,14 @@ from routes.strategy import router as strategy_router
 from routes.signals import router as signals_router
 from routes.backtest import router as backtest_router
 from routes.openalice import router as openalice_router
-from routes.kronos import router as kronos_router
+from routes.thread import router as thread_router
+from routes.chain import router as chain_router
+
+try:
+    from routes.kronos import router as kronos_router
+except ImportError:
+    kronos_router = None
+    logger.warning("Kronos 模块不可用（缺少 torch），已跳过")
 
 app = FastAPI(
     title="A-Stock Analyst",
@@ -54,7 +61,10 @@ app.include_router(strategy_router)
 app.include_router(signals_router)
 app.include_router(backtest_router)
 app.include_router(openalice_router)  # OpenAlice AI 集成
-app.include_router(kronos_router)  # Kronos 预测引擎
+if kronos_router:
+    app.include_router(kronos_router)  # Kronos 预测引擎
+app.include_router(thread_router)  # 12-Factor Thread 状态管理
+app.include_router(chain_router)   # 产业链知识图谱查询
 
 # === 启动时数据检查 ===
 @app.on_event("startup")

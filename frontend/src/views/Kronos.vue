@@ -5,6 +5,13 @@
     <!-- 参数配置区 -->
     <van-cell-group title="预测参数" class="param-group">
       <van-field
+        v-model="currentSymbol"
+        label="股票代码"
+        type="text"
+        placeholder="000001"
+        clearable
+      />
+      <van-field
         v-model="lookback"
         label="历史窗口"
         type="number"
@@ -132,7 +139,6 @@
 
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
-import { createChart, CandlestickSeries, CrosshairMode } from 'lightweight-charts'
 
 // 当前股票代码（从 URL 或全局状态获取）
 const currentSymbol = ref('000001') // 默认平安银行
@@ -145,6 +151,9 @@ const sampleCount = ref('1')
 const modelSelect = ref('kronos-small')
 const loading = ref(false)
 const hasPredicted = ref(false)
+
+// 图表容器 ref（模板 ref="chartContainer" 绑定）
+const chartContainer = ref(null)
 
 // 数据
 const historicalData = ref([])
@@ -232,90 +241,149 @@ const runPrediction = async () => {
 }
 
 const drawChart = () => {
-  const container = document.getElementById('chartContainer')
+  const container = chartContainer.value
   if (!container || !historicalData.value.length) return
 
   // 销毁旧图表
   if (chart) {
     chart.remove()
+    chart = null
   }
 
-  // 创建新图表
-  chart = createChart(container, {
-    width: container.clientWidth,
-    height: 400,
-    layout: {
-      background: { color: '#100c2a' },
-      textColor: '#d1d4dc',
-    },
-    grid: {
-      vertLines: { color: 'rgba(255, 255, 255, 0.1)' },
-      horzLines: { color: 'rgba(255, 255, 255, 0.1)' },
-    },
-    crosshair: {
-      mode: CrosshairMode.Normal,
-    },
-    rightPriceScale: {
-      borderColor: 'rgba(197, 203, 206, 0.8)',
-    },
-    timeScale: {
-      borderColor: 'rgba(197, 203, 206, 0.8)',
-      timeVisible: true,
-    },
-  })
+  // 动态导入 lightweight-charts（V4 版本）
+  import('lightweight-charts').then(LW => {
+    const lw = LW.default || LW
+    const { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } = lw
 
-  // 历史 K 线系列（实线）
-  candleSeries = chart.addCandlestickSeries({
-    upColor: '#26a69a',
-    downColor: '#ef5350',
-    borderVisible: false,
-    wickUpColor: '#26a69a',
-    wickDownColor: '#ef5350',
-  })
+    // 创建新图表
+    chart = createChart(container, {
+      width: container.clientWidth,
+      height: 400,
+      layout: {
+        background: { color: '#100c2a' },
+        textColor: '#d1d4dc',
+      },
+      grid: {
+        vertLines: { color: 'rgba(255, 255, 255, 0.1)' },
+        horzLines: { color: 'rgba(255, 255, 255, 0.1)' },
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(197, 203, 206, 0.8)',
+      },
+      timeScale: {
+        borderColor: 'rgba(197, 203, 206, 0.8)',
+        timeVisible: true,
+      },
+    })
 
-  // 预测 K 线系列（虚线/半透明）
-  predSeries = chart.addCandlestickSeries({
-    upColor: '#4bc0c0',
-    downColor: '#f64e60',
-    borderVisible: true,
-    borderUpColor: '#4bc0c0',
-    borderDownColor: '#f64e60',
-    borderColor: '#ffffff',
-    wickUpColor: '#4bc0c0',
-    wickDownColor: '#f64e60',
-    priceLineVisible: false,
-  })
+    // 历史 K 线系列（实线）—— V4 API: addSeries
+    candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderVisible: false,
+      wickUpColor: '#26a69a',
+      wickDownColor: '#ef5350',
+    })
 
-  // 准备历史数据
-  const histCandles = historicalData.value.map(d => ({
-    time: new Date(d.trade_date).getTime() / 1000,
-    open: d.open,
-    high: d.high,
-    low: d.low,
-    close: d.close
-  }))
+    // 预测 K 线系列（虚线/半透明）
+    predSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#4bc0c0',
+      downColor: '#f64e60',
+      borderVisible: true,
+      borderUpColor: '#4bc0c0',
+      borderDownColor: '#f64e60',
+      wickUpColor: '#4bc0c0',
+      wickDownColor: '#f64e60',
+      priceLineVisible: false,
+    })
 
-  // 准备预测数据（使用未来时间戳）
-  const lastDate = new Date(historicalData.value[historicalData.value.length - 1]?.trade_date)
-  const predCandles = predictionData.value.map((d, idx) => {
-    // 模拟未来日期（交易日）
-    const futureDate = new Date(lastDate)
-    futureDate.setDate(lastDate.getDate() + (idx + 1) * 1.5) // 近似交易日
-    
-    return {
-      time: futureDate.getTime() / 1000,
+    // 准备历史数据
+    const histCandles = historicalData.value.map(d => ({
+      time: new Date(d.trade_date).getTime() / 1000,
       open: d.open,
       high: d.high,
       low: d.low,
       close: d.close
+    }))
+
+    // 准备预测数据
+    const lastDate = new Date(historicalData.value[historicalData.value.length - 1]?.trade_date)
+    const predCandles = predictionData.value.map((d, idx) => {
+      const futureDate = new Date(lastDate)
+      futureDate.setDate(lastDate.getDate() + (idx + 1) * 1.5)
+
+      return {
+        time: futureDate.getTime() / 1000,
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close
+      }
+    })
+
+    candleSeries.setData(histCandles)
+    predSeries.setData(predCandles)
+
+    // 3) 在历史/预测分界处画一条竖线 + 标签
+    if (histCandles.length > 0) {
+      const boundaryTime = histCandles[histCandles.length - 1].time
+      const allCandles = [...histCandles, ...predCandles]
+      const maxPrice = Math.max(...allCandles.map(c => c.high))
+      const minPrice = Math.min(...allCandles.map(c => c.low))
+
+      // 分隔竖线（LineSeries）
+      const sepLine = chart.addSeries(lw.LineSeries, {
+        color: '#ffffff',
+        lineWidth: 1,
+        lineStyle: lw.LineStyle.Dashed,
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+      })
+      sepLine.setData([
+        { time: boundaryTime, value: minPrice - (maxPrice - minPrice) * 0.1 },
+        { time: boundaryTime, value: maxPrice + (maxPrice - minPrice) * 0.1 },
+      ])
+
+      // 历史/预测标签
+      chart.addSeries(lw.LineSeries, {
+        color: 'rgba(38, 166, 154, 0.5)',
+        lineWidth: 0,
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+      }).setData([
+        { time: histCandles[0].time, value: maxPrice + (maxPrice - minPrice) * 0.15 },
+        { time: histCandles[Math.floor(histCandles.length / 2)].time, value: maxPrice + (maxPrice - minPrice) * 0.15 },
+      ])
+
+      // 用 series markers 在时序轴上显示标签
+      candleSeries.setMarkers([
+        {
+          time: boundaryTime,
+          position: 'aboveBar',
+          color: '#26a69a',
+          shape: 'circle',
+          text: '📈 历史',
+        },
+      ])
+      predSeries.setMarkers([
+        {
+          time: predCandles.length > 0 ? predCandles[0].time : boundaryTime,
+          position: 'aboveBar',
+          color: '#4bc0c0',
+          shape: 'arrowUp',
+          text: '🎯 预测',
+        },
+      ])
     }
+
+    // 自动缩放
+    chart.timeScale().fitContent()
   })
-
-  candleSeries.setData(histCandles)
-  predSeries.setData(predCandles)
-
-  // 自动缩放
-  chart.timeScale().fitContent()
 }
 
 const zoomOut = () => {
@@ -339,14 +407,13 @@ onMounted(() => {
   // 监听窗口大小
   resizeObserver = new ResizeObserver(() => {
     if (chart) {
-      chart.resize(document.getElementById('chartContainer').clientWidth, 400)
+      chart.resize(chartContainer.value.clientWidth, 400)
     }
   })
   
   nextTick(() => {
-    const container = document.getElementById('chartContainer')
-    if (container) {
-      resizeObserver.observe(container)
+    if (chartContainer.value) {
+      resizeObserver.observe(chartContainer.value)
     }
   })
 })

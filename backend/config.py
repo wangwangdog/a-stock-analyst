@@ -1,14 +1,20 @@
 import os
 from pathlib import Path
 
-# 数据库配置
-DB_PATH = Path(__file__).parent / 'stock.db'
+# 数据库配置 — 统一指向 chanlun_klines.sqlite（主页面同源）
+DB_PATH = Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite'
 
 # 请求间隔（秒）
 REQUEST_INTERVAL = 0.1
 
 # 数据验证配置
-VALIDATION_TOLERANCE = 0.001  # K 线数据验证容差
+VALIDATION_TOLERANCE = {
+    "open": 0.001,
+    "high": 0.001,
+    "low": 0.001,
+    "close": 0.001,
+    "volume": 0.02,
+}  # K 线数据验证容差（各字段）
 
 # API 配置
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")

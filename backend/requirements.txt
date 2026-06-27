@@ -2,6 +2,7 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 akshare>=1.14.0
 baostock>=0.8.8
+mootdx>=0.11.0  # TCP 通达信行情，Baostock 降级方案
 pandas>=2.1.0
 numpy>=1.24.0
 pydantic>=2.4.0

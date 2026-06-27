@@ -4,6 +4,7 @@ https://github.com/shiyu-coder/Kronos
 """
 import sys
 import os
+from datetime import datetime, timedelta
 import torch
 import pandas as pd
 import sqlite3
@@ -137,30 +138,38 @@ async def list_models():
 async def predict(request: KronosPredictRequest):
     """单只股票预测"""
     try:
-        # 1. 加载数据
-        db_path = Path("/home/dogzi/.openclaw/workspace/a-stock-analyst/backend/data/stock_cache.db")
-        if not db_path.exists():
-            raise HTTPException(500, "数据库文件不存在")
+        # 1. 加载数据 — 与主页面（chanlun_chart TV）同一个数据库
+        #    数据库：~/.chanlun_pro/db/chanlun_klines.sqlite → kline_cache 表
+        #    ExchangeDB.klines() 也读同一个表
+        raw_symbol = request.symbol
+        for prefix in ['SH.', 'SZ.', 'BJ.']:
+            if raw_symbol.upper().startswith(prefix):
+                raw_symbol = raw_symbol[len(prefix):]
+                break
         
-        conn = sqlite3.connect(db_path)
+        _db_path = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+        if not os.path.exists(_db_path):
+            raise HTTPException(500, f"数据库不存在：{_db_path}")
         
-        # 查询历史数据（需要 lookback + pred_len 用于时间戳对齐）
-        sql = f"""
-            SELECT trade_date, open, high, low, close, volume, amount 
-            FROM stock_daily 
-            WHERE symbol = '{request.symbol}'
-            ORDER BY trade_date DESC 
-            LIMIT {request.lookback + request.pred_len}
-        """
-        
-        df = pd.read_sql(sql, conn)
-        conn.close()
+        total_needed = request.lookback + request.pred_len
+        _conn = sqlite3.connect(_db_path)
+        df = pd.read_sql(
+            "SELECT trade_date, open, high, low, close, volume "
+            "FROM kline_cache WHERE symbol=? AND period='daily' "
+            "ORDER BY trade_date DESC LIMIT ?",
+            _conn, params=(raw_symbol, total_needed)
+        )
+        _conn.close()
         
         if df.empty or len(df) < request.lookback:
-            raise HTTPException(404, f"数据不足：{request.symbol} 历史数据少于 {request.lookback} 天")
+            raise HTTPException(404, f"数据不足：{request.symbol} 仅 {len(df)} 条（需 {request.lookback} 条）")
+        
+        # 按日期升序
+        df = df.sort_values('trade_date').reset_index(drop=True)
+        # kline_cache 没有 amount，用 close*volume 估算
+        df['amount'] = df['close'] * df['volume']
         
         # 2. 数据预处理
-        df = df.sort_values('trade_date').reset_index(drop=True)
         df['timestamps'] = pd.to_datetime(df['trade_date'])
         
         # 准备输入数据（Kronos 需要的特征：open, high, low, close, volume, amount）
@@ -200,21 +209,22 @@ async def predict(request: KronosPredictRequest):
                 "amount": float(row.get("amount", 0))
             })
         
-        return KronosPredictResponse(
-            symbol=request.symbol,
-            historical=historical,
-            prediction=prediction,
-            model=request.model,
-            device=str(predictor.device),
-            lookback=request.lookback,
-            pred_len=request.pred_len,
-            T=request.T,
-            top_p=request.top_p,
-            sample_count=request.sample_count
-        )
+        return {
+            "code": 0,
+            "symbol": request.symbol,
+            "historical": historical,
+            "prediction": prediction,
+            "model": request.model,
+            "device": str(predictor.device),
+            "lookback": request.lookback,
+            "pred_len": request.pred_len,
+            "T": request.T,
+            "top_p": request.top_p,
+            "sample_count": request.sample_count
+        }
         
     except Exception as e:
-        raise HTTPException(500, f"Kronos 预测失败：{str(e)}")
+        return {"code": -1, "message": f"Kronos 预测失败：{str(e)}"}
 
 
 @router.post("/batch-predict")
@@ -245,8 +255,8 @@ async def batch_predict(request: dict):
             result = await predict(req)
             results[symbol] = {
                 "code": 0,
-                "prediction": result.prediction,
-                "close_price": result.prediction[-1]["close"] if result.prediction else 0
+                "prediction": result.get("prediction", []),
+                "close_price": result.get("prediction", [])[-1]["close"] if result.get("prediction", []) else 0
             }
         except Exception as e:
             results[symbol] = {"code": -1, "error": str(e)}
@@ -255,3 +265,4 @@ async def batch_predict(request: dict):
         "code": 0,
         "data": results
     }
+

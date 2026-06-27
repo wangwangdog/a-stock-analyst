@@ -19,6 +19,7 @@ TDX_SERVERS = [
 ]
 
 FREQ_CONFIG = {
+    '5min':  {'cat': 0, 'bars_per_day': 48},
     '15min': {'cat': 1, 'bars_per_day': 16},
     '30min': {'cat': 2, 'bars_per_day': 8},
     '60min': {'cat': 3, 'bars_per_day': 4},
