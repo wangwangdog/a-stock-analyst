@@ -163,16 +163,26 @@ if _frontend_dir.is_dir():
     from starlette.responses import Response
     from starlette.types import Receive, Scope, Send
 
+    import time as _time
+    _BUILD_TS = str(int(_time.time()))
+
     class _NoCacheStaticFiles(StaticFiles):
-        """静态资源 + no-cache 头"""
+        """静态资源 — 彻底禁用缓存（去 ETag/Last-Modified）"""
         async def get_response(self, path: str, scope):
             resp = await super().get_response(path, scope)
             resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            # 干掉可能触发 304 的头
+            for h in ("etag", "last-modified"):
+                if h in resp.headers:
+                    del resp.headers[h]
             return resp
 
     app.mount("/assets", _NoCacheStaticFiles(directory=str(_frontend_dir / "assets")), name="frontend_assets")
 
-    _cache_hdrs = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+    _cache_hdrs = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Clear-Site-Data": '"cache"',  # 一次性清空浏览器所有缓存
+    }
 
     @app.api_route("/{path:path}", methods=["GET"])
     async def serve_frontend(path: str):
@@ -181,7 +191,15 @@ if _frontend_dir.is_dir():
         file_path = _frontend_dir / path
         if file_path.is_file():
             return FileResponse(str(file_path), headers=_cache_hdrs)
-        return FileResponse(str(_frontend_dir / "index.html"), headers=_cache_hdrs)
+        # index.html — 注入版本号到 JS 引用，强制回源
+        idx = (_frontend_dir / "index.html").read_text(encoding="utf-8")
+        import re as _re
+        idx = _re.sub(
+            r'(src="[^"]*\.js)"',
+            rf'\1?v={_BUILD_TS}"',
+            idx
+        )
+        return HTMLResponse(content=idx, headers=_cache_hdrs)
 
     logger.info(f"前端静态文件已挂载: {_frontend_dir}")
 else:

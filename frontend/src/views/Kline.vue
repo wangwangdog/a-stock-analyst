@@ -1,51 +1,7 @@
 <template>
   <div class="kline-split">
-    <!-- 左侧：大笔买入排名 + 新闻 -->
-    <div class="left-sidebar">
-      <!-- Sheet 切换 -->
-      <div class="sidebar-tabs">
-        <span :class="['sidebar-tab', {active: sidebarSheet === 'bigbuy'}]"
-              @click="sidebarSheet = 'bigbuy'">大单</span>
-        <span :class="['sidebar-tab', {active: sidebarSheet === 'news'}]"
-              @click="sidebarSheet = 'news'">新闻</span>
-      </div>
-      
-      <!-- 大单 Sheet -->
-      <template v-if="sidebarSheet === 'bigbuy'">
-        <div class="sidebar-header">
-          <span :class="['tab-btn', {active: bigbuyFilter === 'all'}]"
-                @click="setBigbuyFilter('all')">全量</span>
-          <span :class="['tab-btn', {active: bigbuyFilter === '5'}]"
-                @click="setBigbuyFilter('5')">近5/1</span>
-          <span :class="['tab-btn', {active: bigbuyFilter === '10'}]"
-                @click="setBigbuyFilter('10')">近10/1</span>
-        </div>
-        <div class="sidebar-list">
-          <div
-            v-for="(item, idx) in bigBuyRank"
-            :key="item.symbol"
-            class="sidebar-item"
-            :class="{ active: activeStock === item.symbol }"
-            @click="switchStock(item.symbol)"
-          >
-            <span class="rank-num">{{ idx + 1 }}</span>
-            <span class="rank-name">{{ item.name || item.symbol }}</span>
-            <span class="rank-code">{{ item.symbol }}</span>
-            <span class="rank-days">{{ item.days }}天</span>
-          </div>
-          <div v-if="!bigBuyRank.length" class="sidebar-empty">暂无数据</div>
-        </div>
-      </template>
-      
-      <!-- 新闻 Sheet（占位） -->
-      <template v-else>
-        <div class="sidebar-news-placeholder">
-          <van-icon name="newspaper-o" size="32" color="#ccc" />
-          <p style="color:#999;font-size:13px;margin-top:8px">新闻列表</p>
-          <p style="color:#bbb;font-size:11px">即将上线</p>
-        </div>
-      </template>
-    </div>
+    <!-- 左侧：共享 Sidebar 组件 -->
+    <Sidebar @select-stock="switchStock" />
 
     <!-- 右侧：K线内容 -->
     <div class="right-kline">
@@ -129,7 +85,7 @@
 
     <!-- 股票代码+名称 -->
     <div class="stock-info-line" @click="goToChanlun" style="cursor:pointer" :title="'点击查看 ' + symbol + ' 缠论图表'">
-      {{ symbol }}  {{ stockName || '' }} <span style="font-size:11px;opacity:0.5">🔗缠论</span>
+      {{ symbol }}  {{ stockName || '' }} <span style="font-size:11px;opacity:0.5">🔗缠论 v10</span>
     </div>
 
     <!-- 基本面信息（内联 - Tushare 分析） -->
@@ -294,6 +250,7 @@ import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { showToast, showDialog, closeToast } from 'vant'
 import { getKline, getBigBuy, getBigBuyNet } from '../utils/api.js'
+import Sidebar from '../components/Sidebar.vue'
 
 const props = defineProps({ symbol: { type: String, default: '000001' } })
 const route = useRoute()
@@ -314,32 +271,15 @@ const periods = [
   { key: '15min', label: '15分' },
 ]
 
-// 左侧大单排名
-const bigBuyRank = ref([])
-const bigbuyFilter = ref('all')
-const sidebarSheet = ref('bigbuy')
-// 左侧选中股票与路由同步
+// 选中股票与路由同步
 const activeStock = ref(route.params.symbol || props.symbol)
 
-// 监听路由变化同步高亮
 watch(() => route.params.symbol, (newSym) => {
   if (newSym) activeStock.value = newSym
 })
 
 function goToChanlun() {
-  window.open('/', '_blank')
-}
-
-async function loadBigBuyRank(days = '') {
-  try {
-    const resp = await fetch('/api/v1/bigbuy-rank' + (days ? '?days=' + days : ''))
-    bigBuyRank.value = await resp.json()
-  } catch {}
-}
-
-function setBigbuyFilter(days) {
-  bigbuyFilter.value = days
-  loadBigBuyRank(days === 'all' ? '' : days)
+  window.open('https://dogzi-ms-7d73.tailbc211b.ts.net/', '_blank')
 }
 
 function switchStock(symbol) {
@@ -882,7 +822,6 @@ watch(() => route.params.symbol, (newSym) => {
 onMounted(() => {
   loadData()
   loadFavorites()
-  loadBigBuyRank()
   checkAnalysisCache()
   checkStrategyPick()
 })
@@ -1741,122 +1680,6 @@ function showMenu() {
   overflow-y: auto;
   background: #fff;
   padding-bottom: 70px;
-}
-.left-sidebar {
-  width: 180px;
-  min-width: 180px;
-  background: #f5f7fa;
-  border-right: 1px solid #e0e0e0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-.sidebar-header {
-  padding: 6px 8px;
-  font-weight: 700;
-  font-size: 14px;
-  background: #fff;
-  border-bottom: 1px solid #e0e0e0;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  gap: 4px;
-}
-.sidebar-tabs {
-  display: flex;
-  background: #fff;
-  border-bottom: 1px solid #e0e0e0;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-.sidebar-tab {
-  flex: 1;
-  padding: 10px 0;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 500;
-  color: #666;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-}
-.sidebar-tab.active {
-  color: #1989fa;
-  border-bottom-color: #1989fa;
-  font-weight: 600;
-}
-.tab-btn {
-  flex: 1;
-  padding: 5px 2px;
-  font-size: 12px;
-  font-weight: 400;
-  text-align: center;
-  cursor: pointer;
-  border: 1px solid #d0d0d0;
-  border-radius: 4px;
-  background: #fff;
-  color: #333;
-  transition: all .15s;
-}
-.tab-btn.active {
-  color: #fff;
-  background: #1989fa;
-  border-color: #1989fa;
-  font-weight: 600;
-}
-.sidebar-news-placeholder {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
-}
-.sidebar-list {
-  flex: 1;
-  overflow-y: auto;
-}
-.sidebar-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 10px;
-  border-bottom: 1px solid #eee;
-  cursor: pointer;
-  transition: background 0.15s;
-  gap: 4px;
-}
-.sidebar-item:hover { background: #e8f0fe; }
-.sidebar-item.active { background: #d0e3ff; }
-.rank-num {
-  width: 20px;
-  font-size: 11px;
-  color: #999;
-  text-align: right;
-  margin-right: 4px;
-}
-.rank-name {
-  flex: 1;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.rank-code {
-  font-size: 11px;
-  color: #999;
-}
-.rank-days {
-  font-size: 11px;
-  color: #e74c3c;
-  font-weight: 600;
-}
-.sidebar-empty {
-  padding: 20px;
-  text-align: center;
-  color: #999;
-  font-size: 13px;
 }
 .price-bar {
   padding: 8px 16px;
