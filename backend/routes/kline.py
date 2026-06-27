@@ -443,19 +443,19 @@ async def get_bigbuy(symbol: str, days: int = Query(60, description="回溯天�
 
 @router.get("/bigbuy-net/{symbol}")
 async def get_bigbuy_net(symbol: str, days: int = Query(60, description="回溯天数")):
-    """获取大单净流入数据（来自 stock_fund_flow 表 — 大单净额）"""
+    """获取资金流入数据（来自 stock_fund_flow 表 — 主力净流入，正=流入，负=流出）"""
     from data.cache import _get_conn
     conn = _get_conn()
     try:
         bare = symbol.split('.')[-1] if '.' in symbol else symbol
         rows = conn.execute(
-            "SELECT trade_date, big_inflow "
+            "SELECT trade_date, main_inflow "
             "FROM stock_fund_flow "
             "WHERE symbol=? ORDER BY trade_date DESC LIMIT ?",
             (bare, days)
         ).fetchall()
         if not rows:
-            return {"status": "ok", "data": [], "message": "无大单净流入数据"}
+            return {"status": "ok", "data": [], "message": "无资金流入数据"}
         data = [{"date": r[0], "net_amount": r[1]} for r in rows]
         data.sort(key=lambda x: x["date"])
         return {"status": "ok", "data": data, "total": len(data)}

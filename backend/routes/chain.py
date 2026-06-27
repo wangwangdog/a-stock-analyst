@@ -385,3 +385,238 @@ async def list_industries():
         }
     finally:
         conn.close()
+
+
+# ===== 全球物质流数据 API (v2) =====
+
+@router.get("/chain/material-flows/countries")
+def list_material_flow_countries():
+    """列出有全球物质流数据的国家"""
+    _check_chain_db()
+    conn = _get_chain_conn()
+    try:
+        rows = conn.execute(
+            "SELECT name, COUNT(*) as flows FROM global_entities ge "
+            "JOIN material_flows_ts mf ON ge.id = mf.entity_id "
+            "WHERE ge.type='country' AND ge.source='material_flows' "
+            "GROUP BY ge.id ORDER BY flows DESC"
+        ).fetchall()
+        return {
+            "total": len(rows),
+            "countries": [{"name": r["name"], "data_points": r["flows"]} for r in rows]
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/chain/material-flows/{country}")
+def get_material_flows(
+    country: str,
+    flow_name: Optional[str] = Query(None, description="筛选指标: DE/DMC/IMP/EXP/PTB等"),
+    category: Optional[str] = Query(None, description="筛选类别: Biomass/Fossil fuels/Metal ores等"),
+    year: Optional[int] = Query(None, description="筛选年份: 1970-2019"),
+    limit: int = Query(500, description="返回行数上限")
+):
+    """查询某国的全球物质流数据
+    
+    示例: /chain/material-flows/China?flow_name=DMC&year=2019
+    """
+    _check_chain_db()
+    conn = _get_chain_conn()
+    try:
+        # 检查表是否存在
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='material_flows_ts'"
+        ).fetchall()
+        if not tables:
+            return {"status": "not_ready", "message": "物质流数据表未创建", "data": []}
+        
+        where = ["country = ?"]
+        params = [country]
+        
+        if flow_name:
+            where.append("flow_name = ?")
+            params.append(flow_name)
+        if category:
+            where.append("category = ?")
+            params.append(category)
+        if year:
+            where.append("year = ?")
+            params.append(year)
+        
+        sql = f"SELECT country, category, flow_name, flow_unit, year, value FROM material_flows_ts WHERE {' AND '.join(where)} ORDER BY year DESC, category, flow_name LIMIT ?"
+        params.append(limit)
+        
+        rows = conn.execute(sql, params).fetchall()
+        
+        # 按 flow_name 分组统计
+        flow_stats = {}
+        for r in rows:
+            fn = r["flow_name"]
+            if fn not in flow_stats:
+                flow_stats[fn] = {"min_year": 9999, "max_year": 0, "count": 0, "latest_value": 0}
+            fs = flow_stats[fn]
+            fs["count"] += 1
+            fs["min_year"] = min(fs["min_year"], r["year"])
+            fs["max_year"] = max(fs["max_year"], r["year"])
+            if r["year"] >= fs.get("_latest_yr", 0):
+                fs["_latest_yr"] = r["year"]
+                fs["latest_value"] = r["value"]
+        
+        # 清理临时字段
+        for v in flow_stats.values():
+            v.pop("_latest_yr", None)
+        
+        return {
+            "status": "ok",
+            "country": country,
+            "total": len(rows),
+            "flow_summary": {k: v for k, v in sorted(flow_stats.items())},
+            "data": [{
+                "country": r["country"],
+                "category": r["category"],
+                "flow_name": r["flow_name"],
+                "unit": r["flow_unit"],
+                "year": r["year"],
+                "value": r["value"],
+            } for r in rows],
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/chain/material-flows/{country}/trend")
+def get_material_flow_trend(
+    country: str,
+    flow_name: str = Query(..., description="指标名: DE/DMC/IMP/EXP/PTB"),
+    category: Optional[str] = Query(None, description="材料类别")
+):
+    """获取某国某指标的时间序列趋势
+    
+    示例: /chain/material-flows/China/trend?flow_name=DMC&category=Biomass
+    """
+    _check_chain_db()
+    conn = _get_chain_conn()
+    try:
+        where = ["country = ?", "flow_name = ?"]
+        params = [country, flow_name]
+        if category:
+            where.append("category = ?")
+            params.append(category)
+        
+        rows = conn.execute(
+            f"SELECT year, SUM(value) as total_value FROM material_flows_ts "
+            f"WHERE {' AND '.join(where)} GROUP BY year ORDER BY year",
+            params
+        ).fetchall()
+        
+        return {
+            "country": country,
+            "flow_name": flow_name,
+            "category": category or "全部",
+            "unit": "t",
+            "trend": [{"year": r["year"], "value": r["total_value"]} for r in rows],
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/chain/stock/{symbol}/supply-chain-enriched")
+def get_stock_supply_chain_enriched(symbol: str):
+    """个股产业链增强视图：ChainKG + 全球物质流关联
+    
+    返回: 传统产业链 + 相关材料/能源的全球流动趋势
+    """
+    _check_chain_db()
+    conn = _get_chain_conn()
+    try:
+        # 处理代码格式: "600346" 或 "600346.SH" 或 "sh.600346"
+        if '.' in symbol:
+            parts = symbol.split('.')
+            if parts[-1].upper() in ('SH', 'SZ', 'BJ'):
+                bare = symbol  # 已经是 "600346.SH" 格式
+            else:
+                bare = parts[-1]  # "sh.600346" → "600346"
+        else:
+            bare = symbol
+        
+        # 尝试多种格式匹配（链数据库存的是 600346.SH 格式）
+        candidates = [bare]
+        if '.' not in bare:
+            candidates.extend([f"{bare}.SH", f"{bare}.SZ", f"{bare}.BJ"])
+        
+        company = None
+        for code in candidates:
+            company = conn.execute(
+                "SELECT * FROM chain_companies WHERE code = ? OR code LIKE ?",
+                (code, f"{code}%")
+            ).fetchone()
+            if company:
+                break
+        if not company:
+            return {"status": "not_found", "symbol": symbol, "message": "产业链库中无该公司"}
+        
+        # 2. 获取公司产品
+        products = conn.execute(
+            "SELECT product_name, rel FROM chain_company_product WHERE company_code = ?",
+            (bare,)
+        ).fetchall()
+        
+        # 3. 产品→上游材料
+        upstream_set = set()
+        downstream_set = set()
+        for p in products:
+            for u in conn.execute(
+                "SELECT to_entity FROM chain_product_relation WHERE from_entity = ? AND rel = '上游材料'",
+                (p["product_name"],)
+            ).fetchall():
+                upstream_set.add(u["to_entity"])
+            for d in conn.execute(
+                "SELECT to_entity FROM chain_product_relation WHERE from_entity = ? AND rel = '下游产品'",
+                (p["product_name"],)
+            ).fetchall():
+                downstream_set.add(d["to_entity"])
+        
+        # 4. 材料→全球物质流关联（模糊匹配）
+        material_keywords = {
+            'Biomass': ['木材', '木', '纸', '橡胶', '棉', '粮', '大豆', '玉米', '小麦', '稻', '糖', '纺织', '纤维', 
+                       '浆粕', '棕榈油', '植物油', '豆油', '菜籽油'],
+            'Fossil fuels': ['石油', '原油', '天然气', '煤炭', '煤', '汽油', '柴油', '燃料油', '焦炭', '石脑油', 
+                            '沥青', 'PX', '对二甲苯', '乙烯', '丙烯', '丁二烯', '乙二醇', 'MEG', 'PTA', 
+                            '苯', '甲苯', '二甲苯', '烯烃', '芳烃', '炼化', '石化', '成品油'],
+            'Metal ores': ['铁', '钢', '铜', '铝', '锌', '镍', '铅', '锡', '金', '银', '钨', '钼', '稀土', '金属', '矿'],
+            'Non-metallic minerals': ['水泥', '玻璃', '石', '石灰', '石膏', '砂', '陶瓷', '石墨', '硅', '磷', '钾', '化肥', '碳'],
+        }
+        
+        material_links = []
+        # 同时匹配上游材料 + 公司自身产品（如"PTA"是石化中间品）
+        all_materials = list(upstream_set) + [p["product_name"] for p in products]
+        for mat in all_materials:
+            for mf_cat, keywords in material_keywords.items():
+                if any(kw in mat for kw in keywords):
+                    # 查询该材料类别的全球趋势（中国）
+                    trend_rows = conn.execute(
+                        """SELECT year, SUM(value) as total
+                           FROM material_flows_ts
+                           WHERE country='China' AND category=? AND flow_name='Domestic Material Consumption'
+                           AND year >= 2015 GROUP BY year ORDER BY year""",
+                        (mf_cat,)
+                    ).fetchall()
+                    if trend_rows:
+                        material_links.append({
+                            "material": mat,
+                            "global_category": mf_cat,
+                            "china_trend": [{"year": r["year"], "value": r["total"]} for r in trend_rows],
+                        })
+                    break
+        
+        return {
+            "symbol": bare,
+            "company": dict(company),
+            "products": [dict(p) for p in products],
+            "upstream_materials": list(upstream_set),
+            "downstream_products": list(downstream_set),
+            "material_flow_links": material_links,
+        }
+    finally:
+        conn.close()

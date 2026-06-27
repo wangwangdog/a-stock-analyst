@@ -242,9 +242,9 @@
         <div class="sub-chart-label">大单买入数</div>
         <div class="sub-chart-canvas" ref="bigbuyChartRef" id="bigbuy-chart"></div>
       </div>
-      <!-- 大单净额 子图（±柱状图） -->
+      <!-- 资金流入 子图（±柱状图，正=流入，负=流出） -->
       <div class="sub-chart-item" v-show="showBigBuy">
-        <div class="sub-chart-label">大单净额</div>
+        <div class="sub-chart-label">资金流入</div>
         <div class="sub-chart-canvas" ref="ratioChartRef" id="ratio-chart"></div>
       </div>
       <!-- CR 指标 子图 -->
