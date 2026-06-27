@@ -112,11 +112,13 @@ const rightSymbol = ref('')
 
 function setFilter(days) {
   filterDays.value = days
-  loadBigBuyRank(days==='all'?90:days)
+  const d = days==='all'?90:Number(days)
+  const exact = days!=='all'
+  loadBigBuyRank(d, exact)
 }
-async function loadBigBuyRank(days=90) {
+async function loadBigBuyRank(days=90, exact=false) {
   try {
-    const resp = await fetch(`/api/v1/bigbuy-rank?days=${days}`)
+    const resp = await fetch(`/api/v1/bigbuy-rank?days=${days}${exact?'&exact=1':''}`)
     bigBuyRank.value = await resp.json()
   } catch {}
 }

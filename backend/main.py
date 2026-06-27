@@ -29,6 +29,7 @@ from routes.backtest import router as backtest_router
 from routes.openalice import router as openalice_router
 from routes.thread import router as thread_router
 from routes.chain import router as chain_router
+from routes.rss import router as rss_router
 
 try:
     from routes.kronos import router as kronos_router
@@ -65,6 +66,7 @@ if kronos_router:
     app.include_router(kronos_router)  # Kronos 预测引擎
 app.include_router(thread_router)  # 12-Factor Thread 状态管理
 app.include_router(chain_router)   # 产业链知识图谱查询
+app.include_router(rss_router)     # RSS 新闻聚合
 
 # === 启动时数据检查 ===
 @app.on_event("startup")

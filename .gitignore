@@ -47,3 +47,10 @@ Sequoia-X/
 realtime_*.py
 morning_report.md
 morning_strategy.py
+data/rss.db\n data/stocks.db
+data/chain.db
+
+# Large data
+data/chain.db
+data/rss.db
+data/stocks.db

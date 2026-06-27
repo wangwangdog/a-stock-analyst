@@ -468,13 +468,14 @@ async def get_bigbuy_net(symbol: str, days: int = Query(60, description="回溯�
 @router.get("/bigbuy-rank")
 async def get_bigbuy_rank(
     days: int = Query(90, description="统计最近N个交易日: 90=全量, 5=近5日, 10=近10日"),
-    min_days: int = Query(1, description="至少出现天数阈值")
+    min_days: int = Query(1, description="天数阈值"),
+    exact: bool = Query(False, description="True=精匹配（天数=min_days）, False=>=min_days")
 ):
-    """大笔买入天数排名（按出现天数倒序）
+    """大笔买入天数排名
     
-    全量: 90天内大单买入汇总
-    近5: 5天内有≥1天大单买入的股票
-    近10: 10天内有≥1天大单买入的股票
+    全量(days=90, exact=False): 90天内有大单买入的汇总列表
+    近5/1(days=5, exact=True): 5天内恰好有1天大单买入的股票
+    近10/1(days=10, exact=True): 10天内恰好有1天大单买入的股票
     """
     from data.cache import _get_conn
     conn = _get_conn()
@@ -489,8 +490,9 @@ async def get_bigbuy_rank(
         return []
     
     cutoff_date = cutoff[0]
+    op = "=" if exact else ">="
     
-    rows = conn.execute("""
+    rows = conn.execute(f"""
         SELECT 股票代码, 股票名称, COUNT(DISTINCT 买入日期) as 天数, SUM(大笔买数) as 总笔数
         FROM hzeveryday
         WHERE 股票代码 NOT LIKE '9%'
@@ -498,7 +500,7 @@ async def get_bigbuy_rank(
           AND 股票名称 NOT LIKE '%退%'
           AND 买入日期 >= ?
         GROUP BY 股票代码
-        HAVING 天数 >= ?
+        HAVING 天数 {op} ?
         ORDER BY 天数 DESC, 总笔数 DESC
         LIMIT 200
     """, (cutoff_date, min_days)).fetchall()
