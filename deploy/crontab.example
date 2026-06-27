@@ -1,0 +1,2 @@
+# 资金流向懒加载（A同花顺全市场/B大单/C东方财富抢救 轮换）
+0 * * * * cd /home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro && .venv/bin/python3 a_stock_backend/strategies/fund_flow_collector.py --api-lazy >> ~/fund_flow_lazy.log 2>&1

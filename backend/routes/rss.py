@@ -1,39 +1,31 @@
-"""RSS 新闻 API 路由"""
+"""RSS 新闻 API 路由（对接 chanlun-pro 三去重 RSS 引擎）"""
 import logging
 import re
+import os
+import time
+import sqlite3
+from pathlib import Path
 from fastapi import APIRouter, Query, BackgroundTasks
-
-from rss_fetcher import get_items, get_sources, get_stats, fetch_all
 
 logger = logging.getLogger("rss_route")
 router = APIRouter(prefix="/rss-api", tags=["RSS新闻"])
 
-# 源名/颜色缓存
-_source_map = {}
+# chanlun-pro RSS 数据在 ~/.chanlun_pro/db/chanlun_klines.sqlite 的 rss_news_dedup 表
+RSS_DB = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
+CL_RSS_FETCHER = str(Path(__file__).resolve().parent.parent.parent / "chanlun-pro" / "web" / "chanlun_chart" / "cl_app" / "rss_fetcher.py")
+
+# 源名映射
+SOURCE_NAMES = {
+    "trendradar": "TrendRadar",
+    "buzzing_hn": "Buzzing HN",
+    "buzzing_ph": "Buzzing PH",
+}
 
 
-def _load_source_map():
-    if not _source_map:
-        for s in get_sources():
-            _source_map[s["id"]] = {"name": s["name"], "color": s.get("color", "#333")}
-    return _source_map
-
-
-def _clean_html(text):
-    return re.sub(r"<[^>]+>", "", text)
-
-
-def _run_fetch():
-    try:
-        return fetch_all()
-    except Exception as e:
-        logger.error(f"RSS fetch failed: {e}")
-        return 0
-
-
-@router.get("/sources")
-async def rss_sources():
-    return {"sources": get_sources()}
+def _get_conn():
+    conn = sqlite3.connect(RSS_DB)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 @router.get("/list")
@@ -42,35 +34,85 @@ async def rss_list(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    news = get_items(source_id=source_id, limit=limit, offset=offset)
-    sources = _load_source_map()
+    try:
+        conn = _get_conn()
+        if source_id:
+            rows = conn.execute(
+                "SELECT id, source, source_name, title, link, summary, published, fetched_at "
+                "FROM rss_news_dedup WHERE source=? ORDER BY fetched_at DESC LIMIT ? OFFSET ?",
+                (source_id, limit, offset),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, source, source_name, title, link, summary, published, fetched_at "
+                "FROM rss_news_dedup ORDER BY fetched_at DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+        conn.close()
+    except Exception as e:
+        logger.error(f"RSS query failed: {e}")
+        rows = []
 
     return {
         "news": [
             {
-                "id": n["id"],
-                "source": n["source_id"],
-                "source_name": sources.get(n["source_id"], {}).get("name", n["source_id"]),
-                "source_color": sources.get(n["source_id"], {}).get("color", "#333"),
-                "title": _clean_html(n["title"]),
-                "link": n["link"],
-                "summary": n["summary"],
-                "published": n["published"],
-                "fetched_at": n["fetched_at"],
+                "id": r["id"],
+                "source": r["source"],
+                "source_name": r["source_name"] or SOURCE_NAMES.get(r["source"], r["source"]),
+                "source_color": "#333",
+                "title": re.sub(r"<[^>]+>", "", r["title"]),
+                "link": r["link"],
+                "summary": r["summary"] or "",
+                "published": r["published"] or "",
+                "fetched_at": r["fetched_at"],
             }
-            for n in news
+            for r in rows
         ],
-        "count": len(news),
+        "count": len(rows),
         "offset": offset,
     }
 
 
+@router.get("/sources")
+async def rss_sources():
+    try:
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT DISTINCT source, source_name FROM rss_news_dedup ORDER BY source"
+        ).fetchall()
+        conn.close()
+        sources = [
+            {"key": r["source"], "name": r["source_name"] or SOURCE_NAMES.get(r["source"], r["source"])}
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"RSS sources query failed: {e}")
+        sources = []
+    return {"sources": sources}
+
+
 @router.get("/stats")
 async def rss_stats():
-    return get_stats()
+    try:
+        conn = _get_conn()
+        total = conn.execute("SELECT COUNT(*) as c FROM rss_news_dedup").fetchone()["c"]
+        conn.close()
+    except Exception as e:
+        logger.error(f"RSS stats failed: {e}")
+        total = 0
+    return {"total": total}
 
 
 @router.post("/fetch")
 async def rss_fetch(background_tasks: BackgroundTasks):
-    background_tasks.add_task(_run_fetch)
+    """后台触发 chanlun-pro RSS 抓取 + 三去重"""
+    def _run():
+        try:
+            os.system(f"cd /home/dogzi/.openclaw/workspace/a-stock-analyst && "
+                      f"{Path.home() / '.openclaw' / 'workspace' / 'a-stock-analyst' / 'chanlun-pro' / '.venv' / 'bin' / 'python3'} "
+                      f"{CL_RSS_FETCHER} 2>&1 | logger -t rss-fetch")
+        except Exception as e:
+            logger.error(f"RSS fetch failed: {e}")
+
+    background_tasks.add_task(_run)
     return {"status": "started"}

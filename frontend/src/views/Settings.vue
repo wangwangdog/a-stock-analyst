@@ -15,7 +15,7 @@
       </van-cell-group>
 
       <van-cell-group title="关于" style="margin-top:16px">
-        <van-cell title="版本" value="v0.15" />
+        <van-cell title="版本" value="v0.16" />
         <van-cell title="数据来源" value="AKShare / Baostock" />
         <van-cell title="AI 引擎" value="DeepSeek / TradingAgents-CN" />
       </van-cell-group>
