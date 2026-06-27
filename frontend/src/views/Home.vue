@@ -65,27 +65,20 @@
       </template>
     </div>
 
-    <!-- ====== 右侧：可切换主显示区 ====== -->
-    <div class="right-panel" v-if="rightView">
+    <!-- ====== 右侧：图谱视图 ====== -->
+    <div class="right-panel" v-if="rightView === 'tupu'">
       <div class="right-tabs">
-        <span :class="['right-tab',{active:rightView==='kline'}]"
-              @click="switchRightView('kline')">📈 K线</span>
-        <span :class="['right-tab',{active:rightView==='tupu'}]"
-              @click="switchRightView('tupu')">🗺️ 图谱</span>
+        <span class="right-tab active">🗺️ 产业链图谱</span>
         <van-icon name="cross" class="right-close" @click="rightView=''" />
       </div>
-      <div v-show="rightView==='kline'" class="right-kline-wrap">
-        <iframe v-if="rightSymbol" :src="`/#/kline/${rightSymbol}`"
-                class="kline-iframe" frameborder="0" />
-      </div>
-      <div v-show="rightView==='tupu'" class="right-tupu-wrap">
+      <div class="right-tupu-wrap">
         <TupuPanel :symbol="rightSymbol" />
       </div>
     </div>
 
     <div class="right-empty" v-else>
       <van-icon name="arrow-left" size="40" color="#ddd" />
-      <p style="color:#ccc;font-size:14px;margin-top:12px">← 点击左侧股票查看</p>
+      <p style="color:#ccc;font-size:14px;margin-top:12px">← 点击左侧查看</p>
     </div>
   </div>
 </template>
@@ -118,8 +111,7 @@ async function loadBigBuyRank(days='') {
     bigBuyRank.value = await resp.json()
   } catch {}
 }
-function onBigbuyClick(item) { openRightKline(item.symbol) }
-function openRightKline(sym) { rightSymbol.value=sym; rightView.value='kline' }
+function onBigbuyClick(item) { router.push('/kline/' + item.symbol) }
 function openRightTupu(sym) { rightSymbol.value=sym; rightView.value='tupu' }
 function switchRightView(v) { rightView.value=v }
 function onNewsDemoClick() { openRightTupu('000001') }
@@ -140,7 +132,7 @@ function onSearch(val) {
 }
 function onClear() { searchResults.value=[] }
 function goSearchResult(s) {
-  if (s.type==='company') openRightKline(s.code)
+  if (s.type==='company') router.push('/kline/' + s.code)
   else openRightTupu(s.code||'000001')
 }
 
@@ -232,8 +224,6 @@ onMounted(async () => {
 }
 .right-tab.active { color:#1989fa; border-bottom-color:#1989fa; font-weight:600; background:#fff; }
 .right-close { margin-left:auto; cursor:pointer; font-size:18px; color:#999; padding:4px; }
-.right-kline-wrap { flex:1; overflow:hidden; }
-.kline-iframe { width:100%; height:100%; border:none; }
 .right-tupu-wrap { flex:1; overflow-y:auto; }
 .right-empty {
   flex:1; min-width:0; display:flex; flex-direction:column;
