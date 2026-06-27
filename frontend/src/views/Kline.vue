@@ -6,10 +6,15 @@
     <!-- 右侧：K线内容 -->
     <div class="right-kline">
     <van-nav-bar
-      :title="(route.params.symbol || props.symbol) + '  ' + stockName"
       left-arrow
       @click-left="$router.back()"
     >
+      <template #title>
+        <span class="stock-header-btn" @click="goToChanlun" :title="'点击跳转缠论K线 ' + (route.params.symbol || props.symbol)">
+          {{ (route.params.symbol || props.symbol) + '  ' + stockName }}
+          <span style="font-size:11px;opacity:0.5;margin-left:4px">🔗</span>
+        </span>
+      </template>
       <template #right>
         <van-icon name="more-o" @click="showMenu" />
       </template>
@@ -279,7 +284,7 @@ watch(() => route.params.symbol, (newSym) => {
 })
 
 function goToChanlun() {
-  window.open('https://dogzi-ms-7d73.tailbc211b.ts.net/', '_blank')
+  window.open('/tv/', '_blank')
 }
 
 function switchStock(symbol) {
