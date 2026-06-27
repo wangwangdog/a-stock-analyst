@@ -865,6 +865,15 @@ onMounted(() => {
   })
 })
 
+// 从缠论返回时，DOM 重建后重新渲染图表
+watch(showChanlun, (val) => {
+  if (!val) {
+    nextTick(() => {
+      renderAllCharts()
+    })
+  }
+})
+
 async function loadData() {
   pageLoading.value = true
   try {
