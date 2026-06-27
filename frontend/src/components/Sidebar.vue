@@ -126,7 +126,8 @@ function goSearchResult(s) {
 // RSS 新闻
 function fmtTime(ts) {
   if (!ts) return ''
-  const d = new Date(ts * 1000)
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ''
   const now = new Date()
   const diff = (now - d) / 1000
   if (diff < 60) return '刚刚'
@@ -168,14 +169,17 @@ watch(sidebarSheet, (val) => {
   }
 })
 
-onMounted(async () => {
-  loadBigBuyRank()
-  loadNews()
-  try {
-    const resp = await fetch('/api/v1/stocks')
-    const data = await resp.json()
-    if (data.status==='ok') allStocks.value = data.data
-  } catch(e) {}
+onMounted(() => {
+  // 先渲染页面，再异步加载数据
+  // 使用 setTimeout 确保 VDOM 完成初始渲染后再发 API 请求
+  setTimeout(() => {
+    loadBigBuyRank()
+    loadNews()
+    fetch('/api/v1/stocks')
+      .then(r => r.json())
+      .then(d => { if (d.status==='ok') allStocks.value = d.data })
+      .catch(() => {})
+  }, 100)
 })
 </script>
 

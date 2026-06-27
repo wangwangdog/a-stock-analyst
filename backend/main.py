@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from loguru import logger
@@ -51,6 +52,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# GZip - 压缩静态资源（JS 438KB → ~154KB）
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # 注册路由
 app.include_router(kline_router)
@@ -167,21 +171,17 @@ if _frontend_dir.is_dir():
     _BUILD_TS = str(int(_time.time()))
 
     class _NoCacheStaticFiles(StaticFiles):
-        """静态资源 — 彻底禁用缓存（去 ETag/Last-Modified）"""
+        """静态资源 — 版本化文件名（index-xxx.js），永久缓存"""
         async def get_response(self, path: str, scope):
             resp = await super().get_response(path, scope)
-            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            # 干掉可能触发 304 的头
-            for h in ("etag", "last-modified"):
-                if h in resp.headers:
-                    del resp.headers[h]
+            # 静态资源带内容哈希（index-xxx.js），永久缓存
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             return resp
 
     app.mount("/assets", _NoCacheStaticFiles(directory=str(_frontend_dir / "assets")), name="frontend_assets")
 
-    _cache_hdrs = {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Clear-Site-Data": '"cache"',  # 一次性清空浏览器所有缓存
+    _cache_hdrs_no = {
+        "Cache-Control": "no-cache",  # index.html 仅需要检查新版本
     }
 
     @app.api_route("/{path:path}", methods=["GET"])
@@ -190,7 +190,7 @@ if _frontend_dir.is_dir():
             return HTMLResponse(status_code=404)
         file_path = _frontend_dir / path
         if file_path.is_file():
-            return FileResponse(str(file_path), headers=_cache_hdrs)
+            return FileResponse(str(file_path), headers=_cache_hdrs_no)
         # index.html — 注入版本号到 JS 引用，强制回源
         idx = (_frontend_dir / "index.html").read_text(encoding="utf-8")
         import re as _re
@@ -199,7 +199,11 @@ if _frontend_dir.is_dir():
             rf'\1?v={_BUILD_TS}"',
             idx
         )
-        return HTMLResponse(content=idx, headers=_cache_hdrs)
+        _index_stat = (_frontend_dir / "index.html").stat()
+        _last_mod = _time.strftime("%a, %d %b %Y %H:%M:%S GMT", _time.gmtime(_index_stat.st_mtime))
+        _hdrs = dict(_cache_hdrs_no)
+        _hdrs["Last-Modified"] = _last_mod
+        return HTMLResponse(content=idx, headers=_hdrs)
 
     logger.info(f"前端静态文件已挂载: {_frontend_dir}")
 else:

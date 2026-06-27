@@ -1,13 +1,24 @@
 #!/bin/bash
 # a-stock 服务自动保活
 LOG=/tmp/keepalive.log
-# 检查 proxy
-if ! ss -tlnp 2>/dev/null | grep -q ':9900 '; then
-  cd /home/dogzi/.openclaw/workspace/skillgate/deploy && python3 proxy.py &
-  echo "$(date) proxy restarted" >> $LOG
+
+# 检查 nginx proxy (9900) — 替代 Python proxy
+if ! ss -tlnp 2>/dev/null | grep -q 'nginx.*:9900'; then
+  echo "$(date) [KEEPALIVE] nginx proxy down, restarting..." >> $LOG
+  /home/dogzi/.local/bin/nginx -c /home/dogzi/.local/share/nginx/nginx.conf 2>>$LOG
+  # nginx 重启失败可能是旧 master 还在，先 reload 再启动
+  /home/dogzi/.local/bin/nginx -c /home/dogzi/.local/share/nginx/nginx.conf -s reload 2>>$LOG || true
+  echo "$(date) [KEEPALIVE] nginx proxy restarted or reloaded" >> $LOG
 fi
-# 检查 uvicorn
+
+# 检查 uvicorn (9901)
 if ! ss -tlnp 2>/dev/null | grep -q ':9901 '; then
-  cd /home/dogzi/.openclaw/workspace/a-stock-analyst/backend && ../.venv/bin/uvicorn main:app --host 0.0.0.0 --port 9901 &
-  echo "$(date) uvicorn restarted" >> $LOG
+  cd /home/dogzi/.openclaw/workspace/a-stock-analyst/backend && \
+    nohup /home/dogzi/.openclaw/workspace/a-stock-analyst/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 9901 >> /tmp/uvicorn.log 2>&1 &
+  echo "$(date) [KEEPALIVE] uvicorn restarted" >> $LOG
+fi
+
+# 检查 chanlun (9903) - 只是检测，不自动重启（太重量级）
+if ! ss -tlnp 2>/dev/null | grep -q ':9903 '; then
+  echo "$(date) [KEEPALIVE] chanlun DOWN (not auto-restarting)" >> $LOG
 fi

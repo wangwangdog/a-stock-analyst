@@ -187,7 +187,7 @@
       </div>
     </div>
 
-    <!-- 子图区域：MACD, 大单买入数, 有大买单 -->
+    <!-- 子图区域：MACD, 买入额, 资金流入 -->
     <div class="sub-charts-area">
       <!-- MACD 子图 -->
       <div class="sub-chart-item">
@@ -195,9 +195,9 @@
         <div class="sub-chart-canvas" ref="macdChartRef" id="macd-chart"></div>
       </div>
 
-      <!-- 大单买入数 子图（仅日线显示） -->
+      <!-- 买入额 子图（仅日线显示） -->
       <div class="sub-chart-item" v-show="showBigBuy">
-        <div class="sub-chart-label">大单买入数</div>
+        <div class="sub-chart-label">买入额(万元)</div>
         <div class="sub-chart-canvas" ref="bigbuyChartRef" id="bigbuy-chart"></div>
       </div>
       <!-- 资金流入 子图（±柱状图，正=流入，负=流出） -->
@@ -820,10 +820,15 @@ watch(() => route.params.symbol, (newSym) => {
 })
 
 onMounted(() => {
-  loadData()
-  loadFavorites()
-  checkAnalysisCache()
-  checkStrategyPick()
+  // 🔴 ALL data loading deferred: 先渲染框架，再异步加载数据
+  nextTick(() => {
+    setTimeout(() => {
+      loadData()
+      loadFavorites()
+      checkAnalysisCache()
+      checkStrategyPick()
+    }, 50)
+  })
 })
 
 async function loadData() {
@@ -1352,29 +1357,31 @@ function renderBigbuyChart(lw, times) {
   const bbData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
     const match = bbMap[date]
+    const val = match ? ((match.amount || 0) / 10000) : 0
     return {
       time: times[i],
-      value: match ? (match.volume || 0) : 0,
-      color: match ? 'rgba(24,144,255,0.7)' : 'rgba(24,144,255,0.05)',
+      value: val,
+      color: match ? 'rgba(235,82,54,0.7)' : 'rgba(235,82,54,0.05)',
     }
   })
 
   if (bbData.length) bigbuyHistogram.setData(bbData)
   else bigbuyHistogram.setData([{ time: times[0] || '', value: 0 }])
 
-  // 柱顶标注大笔买数
+  // 柱顶标注买入额
   try {
     const markers = []
     klineData.value.forEach((kd, i) => {
       const date = kd.date.slice(0, 10)
       const match = bbMap[date]
-      if (match && match.count > 0) {
+      if (match && match.amount > 0) {
+        const amtWan = (match.amount / 10000).toFixed(0)
         markers.push({
           time: times[i],
           position: 'aboveBar',
           color: '#e74c3c',
           shape: 'arrowUp',
-          text: String(match.volume || match.count || 0),
+          text: amtWan + 'w',
         })
       }
     })
