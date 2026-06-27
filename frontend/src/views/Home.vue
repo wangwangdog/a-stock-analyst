@@ -50,17 +50,21 @@
       <!-- 新闻 Sheet -->
       <template v-if="sidebarSheet==='news' && !searchResults.length">
         <div class="sidebar-news-list">
-          <div class="news-placeholder-item" @click="onNewsDemoClick">
-            <div class="news-dot"></div>
+          <div v-for="item in newsList" :key="item.id" class="news-item" @click="onNewsClick(item)">
+            <div class="news-dot" :class="'src-' + item.source"></div>
             <div class="news-text">
-              <div class="news-title">产业链图谱</div>
-              <div class="news-sub">点击查看示例</div>
+              <div class="news-title">{{ item.title }}</div>
+              <div class="news-sub">
+                <span class="news-source">{{ item.source_name }}</span>
+                <span class="news-time">{{ fmtTime(item.fetched_at) }}</span>
+              </div>
             </div>
           </div>
-          <div class="news-empty">
+          <div v-if="!newsList.length" class="news-empty">
             <van-icon name="newspaper-o" size="24" color="#ddd" />
-            <p style="color:#bbb;font-size:11px;margin-top:6px">新闻流接入中</p>
+            <p style="color:#bbb;font-size:11px;margin-top:6px">加载中...</p>
           </div>
+          <div v-if="newsList.length >= 50" class="news-more" @click="loadMoreNews">加载更多 ↓</div>
         </div>
       </template>
     </div>
@@ -84,7 +88,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import TupuPanel from '../components/TupuPanel.vue'
@@ -98,16 +102,21 @@ const bigBuyRank = ref([])
 const filterDays = ref('all')
 const sidebarSheet = ref('bigbuy')
 
+// RSS 新闻
+const newsList = ref([])
+const newsOffset = ref(0)
+const newsLoading = ref(false)
+
 const rightView = ref('')
 const rightSymbol = ref('')
 
 function setFilter(days) {
   filterDays.value = days
-  loadBigBuyRank(days==='all'?'':days)
+  loadBigBuyRank(days==='all'?90:days)
 }
-async function loadBigBuyRank(days='') {
+async function loadBigBuyRank(days=90) {
   try {
-    const resp = await fetch('/api/v1/bigbuy-rank'+(days?'?days='+days:''))
+    const resp = await fetch(`/api/v1/bigbuy-rank?days=${days}`)
     bigBuyRank.value = await resp.json()
   } catch {}
 }
@@ -136,8 +145,63 @@ function goSearchResult(s) {
   else openRightTupu(s.code||'000001')
 }
 
+// RSS 新闻
+function fmtTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts * 1000)
+  const now = new Date()
+  const diff = (now - d) / 1000
+  if (diff < 60) return '刚刚'
+  if (diff < 3600) return Math.floor(diff/60) + '分钟前'
+  if (diff < 86400) return Math.floor(diff/3600) + '小时前'
+  return Math.floor(diff/86400) + '天前'
+}
+async function loadNews(append=false) {
+  if (newsLoading.value) return
+  newsLoading.value = true
+  try {
+    const off = append ? newsOffset.value : 0
+    const resp = await fetch('/rss-api/list?limit=50&offset=' + off)
+    if (!resp.ok) {
+      console.error('news fetch failed:', resp.status)
+      return
+    }
+    const data = await resp.json()
+    if (data && data.news && data.news.length) {
+      if (append) newsList.value.push(...data.news)
+      else newsList.value = data.news
+      newsOffset.value = off + data.news.length
+    }
+  } catch(e) {
+    console.error('load news error', e)
+    // 如果首次加载失败，显示重试提示
+    if (!newsList.value.length) {
+      newsList.value = [{id:'retry', title:'加载失败，点击重试', link:'', source:'retry'}]
+    }
+  }
+  newsLoading.value = false
+}
+function loadMoreNews() {
+  loadNews(true)
+}
+function onNewsClick(item) {
+  if (item.link) window.open(item.link, '_blank')
+  else if (item.id === 'retry') {
+    newsList.value = []
+    loadNews()
+  }
+}
+
+// 切换到新闻 tab 时自动加载
+watch(sidebarSheet, (val) => {
+  if (val === 'news' && !newsList.value.length && !newsLoading.value) {
+    loadNews()
+  }
+})
+
 onMounted(async () => {
   loadBigBuyRank()
+  loadNews()
   try {
     const resp = await fetch('/api/v1/stocks')
     const data = await resp.json()
@@ -198,16 +262,24 @@ onMounted(async () => {
 .rank-days { font-size:9px; color:#e74c3c; font-weight:600; }
 .sidebar-empty { padding:15px; text-align:center; color:#999; font-size:11px; }
 
-.sidebar-news-list { flex:1; overflow-y:auto; padding:8px 6px; }
-.news-placeholder-item {
-  display:flex; align-items:center; gap:6px; padding:8px;
-  background:#fff; border-radius:6px; margin-bottom:8px; cursor:pointer;
-  box-shadow:0 1px 2px rgba(0,0,0,.04);
+.sidebar-news-list { flex:1; overflow-y:auto; padding:4px 4px; }
+.news-item {
+  display:flex; align-items:flex-start; gap:5px; padding:6px 5px;
+  background:#fff; border-radius:4px; margin-bottom:4px; cursor:pointer;
+  box-shadow:0 1px 1px rgba(0,0,0,.03); transition:background .15s;
 }
-.news-dot { width:6px; height:6px; border-radius:50%; background:#1989fa; flex-shrink:0; }
-.news-title { font-size:12px; font-weight:600; color:#323233; }
-.news-sub { font-size:10px; color:#999; }
-.news-empty { text-align:center; padding:30px 10px; }
+.news-item:hover { background:#e8f0fe; }
+.news-dot { width:5px; height:5px; border-radius:50%; background:#1989fa; flex-shrink:0; margin-top:4px; }
+.news-dot.src-buzzing_hn { background:#e74c3c; }
+.news-dot.src-buzzing_ph { background:#f39c12; }
+.news-dot.src-trendradar { background:#1989fa; }
+.news-text { flex:1; min-width:0; }
+.news-title { font-size:11px; color:#323233; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.news-sub { display:flex; justify-content:space-between; margin-top:2px; }
+.news-source { font-size:9px; color:#999; }
+.news-time { font-size:9px; color:#bbb; }
+.news-empty { text-align:center; padding:20px 10px; }
+.news-more { text-align:center; padding:6px; font-size:10px; color:#1989fa; cursor:pointer; }
 
 /* ====== 右侧 ====== */
 .right-panel {

@@ -466,20 +466,42 @@ async def get_bigbuy_net(symbol: str, days: int = Query(60, description="回溯�
 
 
 @router.get("/bigbuy-rank")
-async def get_bigbuy_rank():
-    """大笔买入天数排名（按出现天数倒序）"""
+async def get_bigbuy_rank(
+    days: int = Query(90, description="统计最近N个交易日: 90=全量, 5=近5日, 10=近10日"),
+    min_days: int = Query(1, description="至少出现天数阈值")
+):
+    """大笔买入天数排名（按出现天数倒序）
+    
+    全量: 90天内大单买入汇总
+    近5: 5天内有≥1天大单买入的股票
+    近10: 10天内有≥1天大单买入的股票
+    """
     from data.cache import _get_conn
     conn = _get_conn()
+    
+    # 计算截止日期：取 hzeveryday 中最新的买入日期
+    cutoff = conn.execute(
+        f"SELECT date(MAX(买入日期), '-{int(days)} days') FROM hzeveryday"
+    ).fetchone()
+    
+    if not cutoff or not cutoff[0]:
+        conn.close()
+        return []
+    
+    cutoff_date = cutoff[0]
+    
     rows = conn.execute("""
         SELECT 股票代码, 股票名称, COUNT(DISTINCT 买入日期) as 天数, SUM(大笔买数) as 总笔数
         FROM hzeveryday
         WHERE 股票代码 NOT LIKE '9%'
           AND 股票名称 NOT LIKE '%ST%'
           AND 股票名称 NOT LIKE '%退%'
+          AND 买入日期 >= ?
         GROUP BY 股票代码
+        HAVING 天数 >= ?
         ORDER BY 天数 DESC, 总笔数 DESC
         LIMIT 200
-    """).fetchall()
+    """, (cutoff_date, min_days)).fetchall()
     conn.close()
     return [
         {"symbol": r[0], "name": r[1] or "", "days": r[2], "total_buys": r[3]}
