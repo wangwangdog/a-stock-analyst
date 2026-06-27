@@ -54,3 +54,10 @@ data/chain.db
 data/chain.db
 data/rss.db
 data/stocks.db
+chanlun-pro/.venv
+chanlun-pro/backup_*
+chanlun-pro/db/
+chanlun-pro/chanlun_klines.sqlite
+chanlun-pro/*.sqlite
+chanlun-pro/__pycache__
+**/__pycache__

@@ -128,7 +128,9 @@
     </div>
 
     <!-- 股票代码+名称 -->
-    <div class="stock-info-line">{{ symbol }}  {{ stockName || '' }}</div>
+    <div class="stock-info-line" @click="goToChanlun" style="cursor:pointer" :title="'点击查看 ' + symbol + ' 缠论图表'">
+      {{ symbol }}  {{ stockName || '' }} <span style="font-size:11px;opacity:0.5">🔗缠论</span>
+    </div>
 
     <!-- 基本面信息（内联 - Tushare 分析） -->
     <div class="fund-section" v-if="showFundamentals">
@@ -323,6 +325,10 @@ const activeStock = ref(route.params.symbol || props.symbol)
 watch(() => route.params.symbol, (newSym) => {
   if (newSym) activeStock.value = newSym
 })
+
+function goToChanlun() {
+  window.open('/', '_blank')
+}
 
 async function loadBigBuyRank(days = '') {
   try {
