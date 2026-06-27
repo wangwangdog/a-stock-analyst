@@ -1,23 +1,50 @@
 <template>
   <div class="kline-split">
-    <!-- 左侧：大笔买入排名 -->
+    <!-- 左侧：大笔买入排名 + 新闻 -->
     <div class="left-sidebar">
-      <div class="sidebar-header">📊 大笔买入排名</div>
-      <div class="sidebar-list">
-        <div
-          v-for="(item, idx) in bigBuyRank"
-          :key="item.symbol"
-          class="sidebar-item"
-          :class="{ active: activeStock === item.symbol }"
-          @click="switchStock(item.symbol)"
-        >
-          <span class="rank-num">{{ idx + 1 }}</span>
-          <span class="rank-name">{{ item.name || item.symbol }}</span>
-          <span class="rank-code">{{ item.symbol }}</span>
-          <span class="rank-days">{{ item.days }}天</span>
-        </div>
-        <div v-if="!bigBuyRank.length" class="sidebar-empty">暂无数据</div>
+      <!-- Sheet 切换 -->
+      <div class="sidebar-tabs">
+        <span :class="['sidebar-tab', {active: sidebarSheet === 'bigbuy'}]"
+              @click="sidebarSheet = 'bigbuy'">大单</span>
+        <span :class="['sidebar-tab', {active: sidebarSheet === 'news'}]"
+              @click="sidebarSheet = 'news'">新闻</span>
       </div>
+      
+      <!-- 大单 Sheet -->
+      <template v-if="sidebarSheet === 'bigbuy'">
+        <div class="sidebar-header">
+          <span :class="['tab-btn', {active: bigbuyFilter === 'all'}]"
+                @click="setBigbuyFilter('all')">全量</span>
+          <span :class="['tab-btn', {active: bigbuyFilter === '5'}]"
+                @click="setBigbuyFilter('5')">近5/1</span>
+          <span :class="['tab-btn', {active: bigbuyFilter === '10'}]"
+                @click="setBigbuyFilter('10')">近10/1</span>
+        </div>
+        <div class="sidebar-list">
+          <div
+            v-for="(item, idx) in bigBuyRank"
+            :key="item.symbol"
+            class="sidebar-item"
+            :class="{ active: activeStock === item.symbol }"
+            @click="switchStock(item.symbol)"
+          >
+            <span class="rank-num">{{ idx + 1 }}</span>
+            <span class="rank-name">{{ item.name || item.symbol }}</span>
+            <span class="rank-code">{{ item.symbol }}</span>
+            <span class="rank-days">{{ item.days }}天</span>
+          </div>
+          <div v-if="!bigBuyRank.length" class="sidebar-empty">暂无数据</div>
+        </div>
+      </template>
+      
+      <!-- 新闻 Sheet（占位） -->
+      <template v-else>
+        <div class="sidebar-news-placeholder">
+          <van-icon name="newspaper-o" size="32" color="#ccc" />
+          <p style="color:#999;font-size:13px;margin-top:8px">新闻列表</p>
+          <p style="color:#bbb;font-size:11px">即将上线</p>
+        </div>
+      </template>
     </div>
 
     <!-- 右侧：K线内容 -->
@@ -287,6 +314,8 @@ const periods = [
 
 // 左侧大单排名
 const bigBuyRank = ref([])
+const bigbuyFilter = ref('all')
+const sidebarSheet = ref('bigbuy')
 // 左侧选中股票与路由同步
 const activeStock = ref(route.params.symbol || props.symbol)
 
@@ -295,11 +324,16 @@ watch(() => route.params.symbol, (newSym) => {
   if (newSym) activeStock.value = newSym
 })
 
-async function loadBigBuyRank() {
+async function loadBigBuyRank(days = '') {
   try {
-    const resp = await fetch('/api/v1/bigbuy-rank')
+    const resp = await fetch('/api/v1/bigbuy-rank' + (days ? '?days=' + days : ''))
     bigBuyRank.value = await resp.json()
   } catch {}
+}
+
+function setBigbuyFilter(days) {
+  bigbuyFilter.value = days
+  loadBigBuyRank(days === 'all' ? '' : days)
 }
 
 function switchStock(symbol) {
@@ -1382,6 +1416,17 @@ function renderBigbuyChart(lw, times) {
 
   if (bbData.length) bigbuyHistogram.setData(bbData)
   else bigbuyHistogram.setData([{ time: times[0] || '', value: 0 }])
+  
+  // 零轴基线
+  try {
+    bigbuyHistogram.createPriceLine({
+      price: 0,
+      color: '#999',
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: false,
+    })
+  } catch(e) {}
 
   // 柱顶标注大笔买数
   try {
@@ -1459,7 +1504,7 @@ function renderRatioChart(lw, times) {
   const chartData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
     const match = bdMap[date]
-    const val = match ? (match.qty || 0) : 0
+    const val = match ? (match.amount || match.lots || 0) : 0
     return {
       time: times[i],
       value: val,
@@ -1468,6 +1513,17 @@ function renderRatioChart(lw, times) {
   })
 
   if (chartData.length) ratioHistogram.setData(chartData)
+  
+  // 零轴基线
+  try {
+    ratioHistogram.createPriceLine({
+      price: 0,
+      color: '#999',
+      lineWidth: 1,
+      lineStyle: 2, // dashed
+      axisLabelVisible: false,
+    })
+  } catch(e) {}
 
   // 柱顶标注次数
   try {
@@ -1479,9 +1535,9 @@ function renderRatioChart(lw, times) {
         markers.push({
           time: times[i],
           position: 'aboveBar',
-          color: val >= 0 ? '#ee0a24' : '#16a34a',
+          color: 'rgba(238, 10, 36, 0.85)',
           shape: 'arrowUp',
-          text: String(match.qty || match.count || 0),
+          text: String(Math.round(match.amount || match.lots || 0)),
         })
       }
     })
@@ -1706,7 +1762,7 @@ function showMenu() {
   flex-direction: column;
 }
 .sidebar-header {
-  padding: 12px 10px;
+  padding: 6px 8px;
   font-weight: 700;
   font-size: 14px;
   background: #fff;
@@ -1714,6 +1770,59 @@ function showMenu() {
   position: sticky;
   top: 0;
   z-index: 1;
+  display: flex;
+  gap: 4px;
+}
+.sidebar-tabs {
+  display: flex;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.sidebar-tab {
+  flex: 1;
+  padding: 10px 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+.sidebar-tab.active {
+  color: #1989fa;
+  border-bottom-color: #1989fa;
+  font-weight: 600;
+}
+.tab-btn {
+  flex: 1;
+  padding: 5px 2px;
+  font-size: 12px;
+  font-weight: 400;
+  text-align: center;
+  cursor: pointer;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  transition: all .15s;
+}
+.tab-btn.active {
+  color: #fff;
+  background: #1989fa;
+  border-color: #1989fa;
+  font-weight: 600;
+}
+.sidebar-news-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
 }
 .sidebar-list {
   flex: 1;

@@ -1,30 +1,50 @@
 <template>
   <div class="home-split">
-    <!-- 左侧：大单排名 -->
+    <!-- 左侧：大单排名 + 新闻 -->
     <div class="left-sidebar">
-      <div class="sidebar-header">
-        <span :class="['tab-btn', {active: filterDays === 'all'}]"
-              @click="setFilter('all')">全量</span>
-        <span :class="['tab-btn', {active: filterDays === '5'}]"
-              @click="setFilter('5')">近5/1</span>
-        <span :class="['tab-btn', {active: filterDays === '10'}]"
-              @click="setFilter('10')">近10/1</span>
+      <!-- Sheet 切换 -->
+      <div class="sidebar-tabs">
+        <span :class="['sidebar-tab', {active: sidebarSheet === 'bigbuy'}]"
+              @click="sidebarSheet = 'bigbuy'">大单</span>
+        <span :class="['sidebar-tab', {active: sidebarSheet === 'news'}]"
+              @click="sidebarSheet = 'news'">新闻</span>
       </div>
-      <div class="sidebar-list">
-        <div
-          v-for="(item, idx) in bigBuyRank"
-          :key="item.symbol"
-          class="sidebar-item"
-          :class="{ active: activeStock === item.symbol }"
-          @click="selectStock(item)"
-        >
-          <span class="rank-num">{{ idx + 1 }}</span>
-          <span class="rank-name">{{ item.name || item.symbol }}</span>
-          <span class="rank-code">{{ item.symbol }}</span>
-          <span class="rank-days">{{ item.days }}天</span>
+      
+      <!-- 大单 Sheet -->
+      <template v-if="sidebarSheet === 'bigbuy'">
+        <div class="sidebar-header">
+          <span :class="['tab-btn', {active: filterDays === 'all'}]"
+                @click="setFilter('all')">全量</span>
+          <span :class="['tab-btn', {active: filterDays === '5'}]"
+                @click="setFilter('5')">近5/1</span>
+          <span :class="['tab-btn', {active: filterDays === '10'}]"
+                @click="setFilter('10')">近10/1</span>
         </div>
-        <div v-if="!bigBuyRank.length" class="sidebar-empty">暂无数据</div>
-      </div>
+        <div class="sidebar-list">
+          <div
+            v-for="(item, idx) in bigBuyRank"
+            :key="item.symbol"
+            class="sidebar-item"
+            :class="{ active: activeStock === item.symbol }"
+            @click="selectStock(item)"
+          >
+            <span class="rank-num">{{ idx + 1 }}</span>
+            <span class="rank-name">{{ item.name || item.symbol }}</span>
+            <span class="rank-code">{{ item.symbol }}</span>
+            <span class="rank-days">{{ item.days }}天</span>
+          </div>
+          <div v-if="!bigBuyRank.length" class="sidebar-empty">暂无数据</div>
+        </div>
+      </template>
+      
+      <!-- 新闻 Sheet（占位） -->
+      <template v-else>
+        <div class="sidebar-news-placeholder">
+          <van-icon name="newspaper-o" size="32" color="#ccc" />
+          <p style="color:#999;font-size:13px;margin-top:8px">新闻列表</p>
+          <p style="color:#bbb;font-size:11px">即将上线</p>
+        </div>
+      </template>
     </div>
 
     <!-- 中间：消息列表 + 搜索 -->
@@ -249,6 +269,7 @@ const bigBuyRank = ref([])
 const activeStock = ref('')
 const activeStockName = ref('')
 const filterDays = ref('all')
+const sidebarSheet = ref('bigbuy')
 
 // 消息列表
 const messages = ref([])
