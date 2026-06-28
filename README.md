@@ -256,6 +256,76 @@ bash start.sh
 
 ---
 
+## 目录结构
+
+```
+a-stock-analyst/
+├── README.md
+├── .env.example                 # API Key 配置模板
+│
+├── backend/                     # FastAPI 后端
+│   ├── main.py                  # 主入口 + 静态文件服务
+│   ├── config.py                # 配置
+│   ├── ai_analysis.py           # 多 Agent 深度分析
+│   ├── quick_analysis.py        # 快速分析（单次 LLM）
+│   │
+│   ├── data/                    # 数据层
+│   │   ├── cache.py             # SQLite 缓存
+│   │   ├── chain_import.py      # 产业链数据导入
+│   │   └── download_provider.py # 多源数据下载
+│   │
+│   ├── routes/                  # API 路由
+│   │   ├── kline.py             # K线/大单/筛选
+│   │   ├── chain.py             # 产业链查询 + 新闻图谱
+│   │   ├── rss.py               # RSS 新闻 API
+│   │   ├── ai.py                # AI 分析
+│   │   ├── strategy.py          # 量化策略
+│   │   └── auth.py              # 登录/缓存
+│   │
+│   ├── scripts/                 # 定时任务脚本
+│   │   ├── cron_news_fetch.sh   # RSS 新闻抓取（15min）
+│   │   ├── daily_sync.py        # 数据同步 + 策略选股
+│   │   ├── pkyd.py              # 盘口异动全流程
+│   │   └── hzeveryday.py        # 大单数据汇总
+│   │
+│   ├── sequoia_x/               # Sequoia-X 量化引擎
+│   │   ├── strategy/            # 6 大内置策略
+│   │   └── core/                # 引擎核心
+│   │
+│   └── tradingagents/           # TradingAgents-CN 多 Agent 研判
+│
+├── chanlun-pro/                 # 缠论分析引擎（全量集成）
+│   ├── web/chanlun_chart/       # 缠论 Web 服务（9903 端口）
+│   │   └── cl_app/
+│   │       ├── rss_fetcher.py   # RSS 三去重抓取
+│   │       └── tavily_fetcher.py# Tavily API 新闻抓取
+│   ├── orig_cl/                 # 缠论核心算法
+│   └── .venv/                   # Python 虚拟环境
+│
+├── frontend/                    # Vue3 前端
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Sidebar.vue      # 侧边栏（大单/策略/新闻 Tab）
+│   │   │   ├── NewsChainPanel.vue # 新闻产业链图谱面板
+│   │   │   └── TupuPanel.vue    # 产业链图谱组件
+│   │   ├── views/
+│   │   │   ├── Home.vue         # 主页
+│   │   │   ├── Kline.vue        # K线分析页
+│   │   │   └── ...              # 其他页面
+│   │   └── router/index.js      # 路由
+│   └── dist/                    # 构建产出
+│
+├── data/                        # 数据文件
+│   └── chain_knowledge/         # 产业链原始数据
+│
+├── deploy/                      # 部署脚本
+│   └── hermes-scripts/          # Hermes cron job 脚本
+│
+├── scripts/                     # 工具脚本
+├── veighna_integration/         # VeighNa 集成
+└── vnpy_chanlun/               # vnpy 缠论适配
+```
+
 ## 技术栈
 
 | 层 | 技术 |
