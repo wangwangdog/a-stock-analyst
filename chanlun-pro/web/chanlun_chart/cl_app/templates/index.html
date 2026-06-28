@@ -32,6 +32,7 @@
       type="text/javascript"
       src="{{ url_for('static', filename='datafeeds/udf/dist/bundle.js') }}?version=1.0.0"></script>
     {% include 'dark.html' %}
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   </head>
 
   <body>
@@ -670,6 +671,187 @@
       });
 
       // 初始化展示页面
+      let macdChartInstance = null;
+      var macdCrosshairLine = null;
+
+      // 从 TV iframe 内测量价格轴宽度（同源 iframe 可访问）
+      function measureLeftScaleWidth(callback) {
+        var tvContainer = document.getElementById('tv_chart_container_1');
+        if (!tvContainer) { callback(65); return; }
+        var iframe = tvContainer.querySelector('iframe');
+        if (!iframe) { callback(65); return; }
+        try {
+          var idoc = iframe.contentDocument || iframe.contentWindow.document;
+          if (!idoc) { callback(65); return; }
+          var table = idoc.querySelector('.chart-markup-table');
+          if (!table) { callback(65); return; }
+          var iframeRect = iframe.getBoundingClientRect();
+          var tableRect = table.getBoundingClientRect();
+          var w = tableRect.left - iframeRect.left;
+          callback(w > 0 ? w : 65);
+        } catch(e) { callback(65); }
+      }
+
+      // 初始化 MACD overlay（在 TV 容器内，absolute 定位在时间轴上方）
+      function initMacdOverlay(code) {
+        var tvContainer = document.getElementById('tv_chart_container_1');
+        if (!tvContainer) return;
+
+        tvContainer.style.position = 'relative';
+        var existing = document.getElementById('tv_macd_overlay');
+        if (existing) existing.remove();
+
+        var overlay = document.createElement('div');
+        overlay.id = 'tv_macd_overlay';
+        overlay.style.cssText = 'position:absolute; left:0; bottom:28px; width:100%; height:120px; z-index:10; overflow:hidden; background:#FFFEF5;border-top:1px solid #e8e0c8;';
+        overlay.innerHTML =
+          '<div style="display:flex;width:100%;height:100%">' +
+            '<div id="macd_left_scale" style="background:#FFFEF5;border-right:1px solid #e8e0c8;"></div>' +
+            '<div style="flex:1;display:flex;flex-direction:column;min-width:0;">' +
+              '<div style="font-size:11px;color:#999;padding:1px 6px;background:#FFFEF5;line-height:14px;">MACD</div>' +
+              '<div id="macd_lc_chart" style="flex:1;min-height:0;border:none;outline:none;"></div>' +
+            '</div>' +
+          '</div>';
+        tvContainer.appendChild(overlay);
+
+        // 测量价格轴宽度后渲染
+        setTimeout(function() {
+          measureLeftScaleWidth(function(scaleWidth) {
+            var scaleEl = document.getElementById('macd_left_scale');
+            if (scaleEl) scaleEl.style.width = (scaleWidth || 65) + 'px';
+            renderMacdChart(code, scaleWidth || 65);
+          });
+        }, 1500);
+
+        $(window).off('resize.macd').on('resize.macd', function() {
+          renderMacdChart(code);
+        });
+      }
+
+      function renderMacdChart(code, scaleWidth) {
+        var lcDiv = document.getElementById('macd_lc_chart');
+        if (!lcDiv) return;
+        var code = code || Utils.get_code();
+        var chartWidth = lcDiv.clientWidth || (window.innerWidth - (scaleWidth || 65) - 20);
+
+        fetch('/api/v1/kline/' + code + '?period=daily&limit=365&indicators=true')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            var klines = data.data || [];
+            var macdInd = (data.indicators || {}).macd || {};
+            if (!klines.length || !macdInd || !macdInd.MACD) return;
+
+            var times = klines.map(function(d) { return d.date.slice(0,10); });
+            var lw = LightweightCharts;
+
+            if (macdChartInstance) {
+              macdChartInstance.resize(chartWidth, lcDiv.clientHeight);
+            } else {
+              macdChartInstance = lw.createChart(lcDiv, {
+                width: chartWidth,
+                height: lcDiv.clientHeight,
+                layout: { background: { type: 'solid', color: '#FFFEF5' }, textColor: '#666', fontSize: 10 },
+                grid: { vertLines: { color: '#e8e0c8' }, horzLines: { color: '#e8e0c8' } },
+                timeScale: { visible: true, borderColor: '#d0d0d0', timeVisible: false },
+                rightPriceScale: { borderColor: '#d0d0d0', scaleMargins: { top: 0.15, bottom: 0.05 } },
+                crosshair: { mode: 0, vertLine: { color: '#999', width: 1, style: 0 }, horzLine: { color: '#999', width: 1, style: 0 } },
+              });
+            }
+
+            // 柱 (DIF-DEA)
+            var histData = macdInd.MACD.map(function(v, i) {
+              if (v === null || v === undefined) return null;
+              return { time: times[i], value: v };
+            }).filter(Boolean);
+            var seriesH = macdChartInstance._series_hist;
+            if (!seriesH) {
+              seriesH = macdChartInstance.addSeries(lw.HistogramSeries, {
+                color: '#26a69a', priceFormat: { type: 'volume' },
+                priceScaleId: 'right',
+              });
+              macdChartInstance._series_hist = seriesH;
+            }
+            if (histData.length) seriesH.setData(histData);
+
+            // DIF 线
+            var difData = macdInd.DIF.map(function(v, i) {
+              if (v === null || v === undefined) return null;
+              return { time: times[i], value: v };
+            }).filter(Boolean);
+            var seriesD = macdChartInstance._series_dif;
+            if (!seriesD) {
+              seriesD = macdChartInstance.addSeries(lw.LineSeries, {
+                color: '#ee0a24', lineWidth: 1,
+              });
+              macdChartInstance._series_dif = seriesD;
+            }
+            if (difData.length) seriesD.setData(difData);
+
+            // DEA 线
+            var deaData = macdInd.DEA.map(function(v, i) {
+              if (v === null || v === undefined) return null;
+              return { time: times[i], value: v };
+            }).filter(Boolean);
+            var seriesE = macdChartInstance._series_dea;
+            if (!seriesE) {
+              seriesE = macdChartInstance.addSeries(lw.LineSeries, {
+                color: '#07c160', lineWidth: 1,
+              });
+              macdChartInstance._series_dea = seriesE;
+            }
+            if (deaData.length) seriesE.setData(deaData);
+
+            macdChartInstance.timeScale().fitContent();
+          })
+          .catch(function(e) { console.error('MACD init error:', e); });
+      }
+
+      function syncMacdTimeRange() {
+        if (!macdChartInstance || !chart_widgets.length) return;
+        try {
+          var w = chart_widgets[0];
+          if (!w || !w.chart) return;
+          var range = w.chart.getVisibleRange();
+          if (range && range.from && range.to) {
+            var fromStr = typeof range.from === 'number'
+              ? new Date(range.from * 1000).toISOString().slice(0,10)
+              : String(range.from).slice(0,10);
+            var toStr = typeof range.to === 'number'
+              ? new Date(range.to * 1000).toISOString().slice(0,10)
+              : String(range.to).slice(0,10);
+            macdChartInstance.timeScale().setVisibleRange({
+              from: fromStr,
+              to: toStr,
+            });
+          }
+        } catch(e) { /* ignore */ }
+      }
+
+      // TV 十字线 → MACD 竖线标记
+      function syncMacdCrosshair() {
+        if (!chart_widgets.length) return;
+        try {
+          var w = chart_widgets[0];
+          if (!w || !w.chart) return;
+          w.chart.onCrosshairMoved().subscribe(null, function(param) {
+            if (!macdChartInstance || !param || !param.time) return;
+            var t = param.time;
+            // 用 LineSeries 画竖线标记
+            if (!macdCrosshairLine) {
+              macdCrosshairLine = macdChartInstance.addSeries(LightweightCharts.LineSeries, {
+                color: '#888', lineWidth: 1, priceLineVisible: false,
+                lastValueVisible: false,
+              });
+            }
+            var timeStr = typeof t === 'number'
+              ? new Date(t * 1000).toISOString().slice(0,10)
+              : String(t).slice(0,10);
+            macdCrosshairLine.setData([{ time: timeStr, value: 0 }]);
+          });
+        } catch(e) { /* ignore: TV widget might not expose crosshair API */ }
+      }
+
+      // 初始化展示页面
       function init_web() {
         // 如果市场不是 a，则隐藏 collapse-bkgn
         if (Utils.get_market() !== "a") {
@@ -684,15 +866,33 @@
         let win_width = charts_area.width() || window.innerWidth;
         let chart_configs = [];
         if (chart_layout_type === "single") {
-          chart_configs = [{ id: "1", style: "flex:1;" }];
-          charts_area.css({ display: "flex", flexDirection: "column" });
-        } else if (chart_layout_type === "vertical-2") {
-          chart_configs = [
-            { id: "1", style: "flex:1;" },
-            { id: "2", style: "flex:1;" },
-          ];
-          charts_area.css({ display: "flex", flexDirection: "row" });
-        } else if (chart_layout_type === "horizontal-2") {
+          // 单容器：TV 占大部分，底部 padding 留出 MACD + 时间轴空间
+          charts_area.css({ display: "block" });
+          var totalH = Math.floor(win_height);
+          charts_area.append('<div id="tv_chart_container_1" style="width:100%;height:' + totalH + 'px;position:relative;padding-bottom:148px;box-sizing:border-box;"></div>');
+          chart_widgets = [];
+          chart_widgets.push(Charts.show_tv_chart("1", totalH - 148));
+          // MACD overlay（在容器 padding 区域内，不遮挡 TV 成交量区）
+          var code = Utils.get_code();
+          setTimeout(function() { initMacdOverlay(code); }, 1000);
+          // 主图范围变化时同步 MACD 时间轴
+          setTimeout(function() {
+            if (chart_widgets.length && chart_widgets[0].chart) {
+              try {
+                chart_widgets[0].chart.onVisibleRangeChanged().subscribe(null, function() {
+                  syncMacdTimeRange();
+                });
+              } catch(e) {}
+              // 同步十字线
+              try {
+                syncMacdCrosshair();
+              } catch(e) {}
+            }
+          }, 2000);
+          ZiXuan.render_zixuan_opts();
+          return;
+        }
+        if (chart_layout_type === "horizontal-2") {
           chart_configs = [
             { id: "1", style: "flex:1;" },
             { id: "2", style: "flex:1;" },

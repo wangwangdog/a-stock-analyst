@@ -147,7 +147,7 @@ async def predict(request: KronosPredictRequest):
                 raw_symbol = raw_symbol[len(prefix):]
                 break
         
-        _db_path = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+        _db_path = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
         if not os.path.exists(_db_path):
             raise HTTPException(500, f"数据库不存在：{_db_path}")
         

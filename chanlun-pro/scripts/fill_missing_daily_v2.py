@@ -5,7 +5,7 @@
 """
 import sys, os, sqlite3, re, requests, time, json
 
-DB_PATH = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 MISSING_DATES = {'2026-05-29', '2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04'}
 
 def get_missing_stocks(conn):

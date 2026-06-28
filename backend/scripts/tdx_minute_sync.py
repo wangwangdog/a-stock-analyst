@@ -12,7 +12,7 @@ from pytdx.hq import TdxHq_API
 
 socket.setdefaulttimeout(15)
 
-DB_PATH = Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite'
+DB_PATH = Path('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite')
 TDX_SERVERS = [
     ('180.153.18.170', 7709),
     ('180.153.18.171', 7709),

@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/cha
 os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 from chanlun.exchange.exchange_tdx import ExchangeTDX
 
-DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 TARGET = {"15m": 3, "30m": 6, "60m": 12}
 INS = """INSERT OR IGNORE INTO kline_cache (symbol,source,period,trade_date,open,close,high,low,volume,amount) VALUES (?,?,?,?,?,?,?,?,?,?)"""
 

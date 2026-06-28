@@ -15,7 +15,7 @@ from pathlib import Path
 from datetime import date, timedelta
 from loguru import logger
 
-DB_PATH = Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite'
+DB_PATH = Path('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite')
 
 # 交易日历（手动指定，或从 trade_calendar 表读取）
 TRADING_DAYS = ['2026-05-28', '2026-05-29', '2026-05-30', '2026-05-31', '2026-06-01']

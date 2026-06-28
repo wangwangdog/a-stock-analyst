@@ -15,18 +15,18 @@ def check_and_report():
     conn.execute("PRAGMA busy_timeout=30000")
 
     # 1. 最新交易日
-    cur = conn.execute("SELECT MAX(date) FROM stock_daily")
+    cur = conn.execute("SELECT MAX(trade_date) FROM kline_cache WHERE source='stock_daily' AND period='daily'")
     latest = cur.fetchone()[0]
     if not latest:
-        log("❌ stock_daily 无数据")
+        log("❌ kline_cache(stock_daily) 无数据")
         conn.close()
         return
     log(f"📅 最新交易日: {latest}")
 
     # 2. stock_daily 覆盖
-    cur = conn.execute("SELECT COUNT(DISTINCT symbol) FROM stock_daily WHERE date=?", (latest,))
+    cur = conn.execute("SELECT COUNT(DISTINCT symbol) FROM kline_cache WHERE source='stock_daily' AND period='daily' WHERE date=?", (latest,))
     daily_cnt = cur.fetchone()[0]
-    log(f"  stock_daily: {daily_cnt}只")
+    log(f"  kline_cache(stock_daily): {daily_cnt}只")
 
     # 3. kline_cache 各周期覆盖
     coverage = {}

@@ -1,7 +1,7 @@
 <template>
   <div class="home-split">
     <!-- ====== 左侧 Sidebar（共享组件）====== -->
-    <Sidebar @select-stock="onBigbuyClick" />
+    <Sidebar @select-stock="onBigbuyClick" @view-news-chain="onNewsClick" />
 
     <!-- ====== 右侧：图谱视图 ====== -->
     <div class="right-panel" v-if="rightView === 'tupu'">
@@ -12,6 +12,11 @@
       <div class="right-tupu-wrap">
         <TupuPanel :symbol="rightSymbol" />
       </div>
+    </div>
+
+    <!-- ====== 右侧：新闻产业链 ====== -->
+    <div class="right-panel" v-else-if="rightView === 'news-chain'">
+      <NewsChainPanel :news="rightNews" @close="rightView=''" />
     </div>
 
     <div class="right-empty" v-else>
@@ -26,14 +31,21 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import TupuPanel from '../components/TupuPanel.vue'
+import NewsChainPanel from '../components/NewsChainPanel.vue'
 import Sidebar from '../components/Sidebar.vue'
 
 const router = useRouter()
 const rightView = ref('')
 const rightSymbol = ref('')
+const rightNews = ref({})
 
 function onBigbuyClick(symbol) {
   router.push('/kline/' + symbol)
+}
+
+function onNewsClick(newsItem) {
+  rightNews.value = newsItem
+  rightView.value = 'news-chain'
 }
 
 onMounted(() => {

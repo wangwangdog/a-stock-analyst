@@ -15,7 +15,7 @@ import sqlite3
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from loguru import logger
 
-DB_PATH = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
+DB_PATH = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 N_DAYS = 20  # 计算 N 日涨幅
 
 

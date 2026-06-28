@@ -14,7 +14,7 @@ from typing import Optional
 import pandas as pd
 import numpy as np
 
-DB_PATH = Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite"
+DB_PATH = Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
 
 
 # ══════════════════════════════════════════════
@@ -288,25 +288,27 @@ def compute_alpha101(df: pd.DataFrame) -> pd.DataFrame:
 # ══════════════════════════════════════════════
 
 def load_stock_daily(symbols: Optional[list[str]] = None, days: int = 500) -> pd.DataFrame:
-    """从 chanlun_klines.sqlite 加载日线数据为 MultiIndex DataFrame"""
+    """从 kline_cache 加载日线数据为 MultiIndex DataFrame（stock_daily 已合并）"""
     conn = sqlite3.connect(str(DB_PATH))
     try:
         if symbols:
             placeholders = ",".join(["?"] * len(symbols))
             sql = f"""
-                SELECT symbol, date, open, high, low, close, volume, turnover
-                FROM stock_daily
+                SELECT symbol, trade_date AS date, open, high, low, close, volume, amount AS turnover
+                FROM kline_cache
                 WHERE symbol IN ({placeholders})
-                  AND date >= date('now', '-{days} days')
-                ORDER BY symbol, date
+                  AND source='stock_daily' AND period='daily'
+                  AND trade_date >= date('now', '-{days} days')
+                ORDER BY symbol, trade_date
             """
             df = pd.read_sql(sql, conn, params=symbols)
         else:
             sql = f"""
-                SELECT symbol, date, open, high, low, close, volume, turnover
-                FROM stock_daily
-                WHERE date >= date('now', '-{days} days')
-                ORDER BY symbol, date
+                SELECT symbol, trade_date AS date, open, high, low, close, volume, amount AS turnover
+                FROM kline_cache
+                WHERE source='stock_daily' AND period='daily'
+                  AND trade_date >= date('now', '-{days} days')
+                ORDER BY symbol, trade_date
             """
             df = pd.read_sql(sql, conn)
 

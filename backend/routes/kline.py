@@ -172,8 +172,25 @@ async def get_kline(
         result = {"primary": df, "status": "ok", "source": "sequoia",
                   "message": f"Sequoia 日线，共 {len(data_list)} 条", "validation": []}
     else:
-        # fallback: 双源校验
-        result = fetch_kline_cross_checked(symbol, start_date, end_date)
+        # fallback: 从腾讯HTTP实时拉取（存入 tencent_fq）
+        try:
+            from data.stock_api_fetcher import get_daily_kline as sa_get_kline
+            sa_df = sa_get_kline(symbol.replace('.', '').replace('SH','').replace('SZ',''), start_date, end_date)
+        except Exception:
+            sa_df = None
+        if sa_df is not None and not sa_df.empty:
+            # 保存为 tencent_fq source
+            try:
+                from data.cache import save_kline
+                save_kline(symbol, 'tencent_fq', sa_df)
+            except Exception:
+                pass
+            df = sa_df
+            result = {"primary": df, "status": "ok", "source": "stock-api",
+                      "message": f"stock-api HTTP 实时数据，共 {len(sa_df)} 条", "validation": []}
+        else:
+            result = {"primary": None, "status": "failed",
+                      "message": "所有数据源均不可用"}
 
         if result["status"] == "failed":
             return KlineResponse(
@@ -218,7 +235,7 @@ async def get_kline(
                 "low": round(float(row.get("low", 0)), 2),
             }
             if "volume" in row:
-                item["volume"] = float(row["volume"])
+                item["volume"] = float(row["volume"]) * 100
             if "amount" in row:
                 item["amount"] = float(row["amount"])
             data_list.append(item)

@@ -3,7 +3,7 @@
 import sys, os, sqlite3
 sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))
 
-DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 
 def store_symbol(symbol, period_map, source='tdx'):
     """从TDX获取指数/个股数据，存入kline_cache"""

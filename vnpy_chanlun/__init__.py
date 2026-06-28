@@ -15,7 +15,7 @@ from vnpy.trader.database import BaseDatabase, BarOverview, TickOverview
 
 
 # ── chanlun-pro 数据库路径 ──
-DB_PATH = Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite"
+DB_PATH = Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
 
 
 # ── 交易所推导 ──

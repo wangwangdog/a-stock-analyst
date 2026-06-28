@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, date
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger('data_prepare')
 
-DB_PATH = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 AKSHARE_TIMEOUT = 30
 
 

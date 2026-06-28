@@ -212,7 +212,7 @@ class ExchangeDB(Exchange):
         kline_pd = []
         if self.market == Market.A.value:
             import sqlite3, os, re
-            _db_path = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+            _db_path = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
             # 保留完整前缀代码（SH.000001 vs SZ.000001 不再冲突）
             _full_code = code
             _pure_code = re.sub(r'^[A-Z]+\.', '', code)
@@ -241,6 +241,9 @@ class ExchangeDB(Exchange):
                     _conn = sqlite3.connect(_db_path)
                     _sql = ("SELECT trade_date, open, high, low, close, volume "
                             "FROM kline_cache WHERE symbol=? AND period=?")
+                    # 日线统一用 tencent_fq（volume 是手数，×100 转股数）
+                    if _p == 'daily':
+                        _sql += " AND source='tencent_fq'"
                     _params = [_try_code, _p]
                     if start_date:
                         _sql += " AND DATE(trade_date)>=?"
@@ -253,6 +256,10 @@ class ExchangeDB(Exchange):
                     _conn.close()
                     if not _df.empty:
                         for _, _r in _df.iterrows():
+                            _vol = float(_r["volume"])
+                            # 日线 tencent_fq 的 volume 是手数，×100 转股
+                            if _p == 'daily':
+                                _vol *= 100
                             kline_pd.append({
                                 "code": code,
                                 "date": _r["trade_date"],
@@ -260,7 +267,7 @@ class ExchangeDB(Exchange):
                                 "high": float(_r["high"]),
                                 "low": float(_r["low"]),
                                 "close": float(_r["close"]),
-                                "volume": float(_r["volume"]),
+                                "volume": _vol,
                             })
                         if limit and len(kline_pd) > limit:
                             kline_pd = kline_pd[-limit:]
@@ -331,7 +338,7 @@ class ExchangeDB(Exchange):
 
     def all_stocks(self):
         try:
-            _db_path = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+            _db_path = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
             _conn = sqlite3.connect(_db_path)
             rows = _conn.execute(
                 "SELECT symbol, name FROM all_stock_info ORDER BY symbol"
@@ -391,7 +398,7 @@ class ExchangeDB(Exchange):
         # 从 all_stock_info 表查个股名称
         try:
             _pure_code = re.sub(r'^[A-Z]+\\.', '', code)
-            _db_path = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+            _db_path = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
             _conn = sqlite3.connect(_db_path)
             _row = _conn.execute(
                 "SELECT name FROM all_stock_info WHERE symbol=? LIMIT 1",

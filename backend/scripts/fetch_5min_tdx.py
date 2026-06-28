@@ -18,7 +18,7 @@ from pytdx.hq import TdxHq_API
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # 配置
-DB_PATH = Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite'
+DB_PATH = Path('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite')
 TDX_SERVER = ('180.153.18.170', 7709)  # 已验证可用
 
 

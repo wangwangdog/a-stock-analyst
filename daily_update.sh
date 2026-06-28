@@ -17,7 +17,7 @@ import sys, sqlite3
 sys.path.insert(0, 'backend')
 from pathlib import Path
 import baostock as bs
-DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
+DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 bs.login()
 rs = bs.query_trade_dates(start_date='2024-01-01', end_date='2028-12-31')
 rows = []
@@ -38,7 +38,7 @@ echo "--- 检查交易日: $TODAY ---" >> "$LOGFILE"
 IS_TRADING=$(python3 -c "
 import sys, sqlite3
 from pathlib import Path
-DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
+DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 conn = sqlite3.connect(DB)
 r = conn.execute('SELECT is_trading_day FROM trade_calendar WHERE calendar_date=?', ('$TODAY',)).fetchone()
 conn.close()
@@ -85,10 +85,10 @@ import sys, sqlite3, time
 sys.path.insert(0, 'backend')
 from pathlib import Path
 import baostock as bs
-DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
+DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 
 conn = sqlite3.connect(DB)
-stocks = [r[0] for r in conn.execute('SELECT DISTINCT symbol FROM stock_daily').fetchall()]
+stocks = [r[0] for r in conn.execute('SELECT DISTINCT symbol FROM all_stock_info WHERE substr(symbol,1,1) IN (\"0\",\"3\",\"6\") ORDER BY symbol').fetchall()]
 conn.close()
 
 print(f'需处理 {len(stocks)} 只股票', flush=True)
@@ -135,7 +135,17 @@ if all_batch:
     import pandas as pd
     df = pd.DataFrame(all_batch)
     conn = sqlite3.connect(DB)
-    # 逐条 upsert 避免主键冲突
+    # 写入 kline_cache（主存储）
+    rows_kc = []
+    for _, row in df.iterrows():
+        rows_kc.append((row['symbol'], 'stock_daily', 'daily', row['date'],
+                        row['open'], row['close'], row['high'], row['low'],
+                        row['volume'] or 0, row['turnover'] or 0))
+    conn.executemany(
+        'INSERT OR IGNORE INTO kline_cache (symbol,source,period,trade_date,open,close,high,low,volume,amount) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        rows_kc
+    )
+    # 兼容写入 stock_daily
     for _, row in df.iterrows():
         conn.execute('''
             INSERT OR REPLACE INTO stock_daily (symbol, date, open, high, low, close, volume, turnover)
@@ -144,7 +154,7 @@ if all_batch:
               row['low'], row['close'], row['volume'], row['turnover']))
     conn.commit()
     conn.close()
-    print(f'stock_daily 写入完成: {len(all_batch)} 条')
+    print(f'kline_cache+stock_daily 写入完成: {len(all_batch)} 条')
 else:
     print(f'今日无新数据 (OK:{total_ok} Fail:{total_fail})')
 

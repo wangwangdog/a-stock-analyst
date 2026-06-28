@@ -5,7 +5,7 @@ sys.path.insert(0, '/home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro/
 import pandas as pd
 import sqlite3
 
-DB_PATH = '/home/dogzi/.chanlun_pro/db/chanlun_klines.sqlite'
+DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 
 # ── 1. 取数据 ──
 conn = sqlite3.connect(DB_PATH)

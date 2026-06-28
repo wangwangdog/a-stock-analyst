@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pytdx.hq import TdxHq_API
 
-DB_PATH = Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite'
+DB_PATH = Path('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite')
 
 # 可用 TDX 服务器列表（从 chanlun 库获取的最佳 IP）
 TDX_SERVERS = [

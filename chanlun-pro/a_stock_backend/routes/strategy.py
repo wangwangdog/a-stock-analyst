@@ -404,7 +404,7 @@ async def intraday_strategy():
 @router.get("/anomaly")
 async def get_anomaly(symbol: str = None, limit: int = 50):
     """📡 盘口异动查询"""
-    conn = sqlite3.connect(os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite"))
+    conn = sqlite3.connect("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
     try:
         today = datetime.now().strftime("%Y-%m-%d")
         if symbol:
@@ -448,7 +448,7 @@ async def trigger_anomaly_collect(watch_only: bool = Query(False)):
 @router.get("/fund-flow")
 async def get_fund_flow(symbol: str = Query(...), limit: int = 200):
     """💰 查询个股资金流向"""
-    conn = sqlite3.connect(os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite"))
+    conn = sqlite3.connect("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
     try:
         rows = conn.execute(
             """SELECT trade_date, close, pct_change,

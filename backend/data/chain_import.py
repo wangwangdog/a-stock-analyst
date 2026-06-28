@@ -22,7 +22,7 @@ from datetime import datetime
 
 # 数据目录
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "chain_knowledge"
-DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "chain.db"
+DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 
 
 def _normalize_code(code: str) -> str:

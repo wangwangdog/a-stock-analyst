@@ -446,9 +446,10 @@ class DataProvider:
 
         df = result[0]
         if df is not None and not df.empty:
-            # 4. 写入缓存
+            # 4. 写入缓存（source 统一用 tencent_fq 或 provider 前缀）
             try:
-                _save_cache(symbol if "." in symbol else clean_sym, f"provider_{period}", df, period=period)
+                _src = 'tencent_fq' if period == 'daily' else f'provider_{period}'
+                _save_cache(symbol if "." in symbol else clean_sym, _src, df, period=period)
             except Exception as e:
                 logger.debug(f"[DataProvider] 缓存写入失败: {e}")
 

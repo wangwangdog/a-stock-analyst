@@ -7,7 +7,7 @@ import pandas as pd
 import sqlite3
 from chanlun.cl2 import CD, _five_bi_condition, _build_bi_zss, _check_middle_overlap
 
-conn = sqlite3.connect('/home/dogzi/.chanlun_pro/db/chanlun_klines.sqlite')
+conn = sqlite3.connect('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite')
 df = pd.read_sql("SELECT date,open,high,low,close,volume,turnover FROM stock_daily WHERE symbol='000001' AND date>='2024-01-01' ORDER BY date", conn)
 conn.close()
 print(f'K线数: {len(df)}')

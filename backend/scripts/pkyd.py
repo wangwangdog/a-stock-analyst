@@ -182,7 +182,7 @@ def main():
     if df_big is not None and not df_big.empty:
         import sqlite3
         from pathlib import Path
-        DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
+        DB = str(Path('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite'))
         conn = sqlite3.connect(DB)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS big_buy_summary (

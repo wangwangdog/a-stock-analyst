@@ -20,7 +20,7 @@ echo "交易日: $TODAY" | tee -a "$LOG"
 IS_TRADING=$(python3 -c "
 import sqlite3
 from pathlib import Path
-DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
+DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 try:
     conn = sqlite3.connect(DB)
     r = conn.execute('SELECT is_trading_day FROM trade_calendar WHERE calendar_date=?', ('$TODAY',)).fetchone()
@@ -88,7 +88,7 @@ import sys, sqlite3, time
 sys.path.insert(0, 'backend')
 from pathlib import Path
 import baostock as bs
-DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
+DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 today='$TODAY'
 
 # 先检查 baostock 数据是否就绪
@@ -136,10 +136,23 @@ if batch:
     import pandas as pd
     df = pd.DataFrame(batch)
     conn = sqlite3.connect(DB)
+    # 写入 kline_cache（source='stock_daily', period='daily'）
+    rows_kc = []
     for _, r in df.iterrows():
-        conn.execute('INSERT OR REPLACE INTO stock_daily (symbol,date,open,high,low,close,volume,turnover) VALUES (?,?,?,?,?,?,?,?)', (r['symbol'],r['date'],r['open'],r['high'],r['low'],r['close'],r['volume'],r['turnover']))
+        rows_kc.append((r['symbol'], 'stock_daily', 'daily', r['date'],
+                        r['open'], r['close'], r['high'], r['low'],
+                        r['volume'] or 0, r['turnover'] or 0))
+    conn.executemany(
+        'INSERT OR IGNORE INTO kline_cache (symbol,source,period,trade_date,open,close,high,low,volume,amount) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        rows_kc
+    )
+    # 同时保留写入 stock_daily（过渡期兼容）
+    conn.executemany(
+        'INSERT OR REPLACE INTO stock_daily (symbol,date,open,high,low,close,volume,turnover) VALUES (?,?,?,?,?,?,?,?)',
+        [(r['symbol'],r['date'],r['open'],r['high'],r['low'],r['close'],r['volume'],r['turnover']) for _, r in df.iterrows()]
+    )
     conn.commit(); conn.close()
-    print(f'stock_daily 写入: {len(batch)} 条')
+    print(f'stock_daily+kline_cache 写入: {len(batch)} 条')
 print(f'完成 (OK:{total_ok} Fail:{total_fail} Data:{total_data})')
 \" 2>&1
 
@@ -218,11 +231,12 @@ print(f'Thread {status}: {THREAD_ID}')
 python3 -c "
 import sqlite3
 from pathlib import Path
-DB = str(Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite')
+DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 conn = sqlite3.connect(DB)
 today='$TODAY'
 checks = [
     ('stock_daily', 'SELECT COUNT(*) FROM stock_daily WHERE date=?'),
+    ('kline_cache(stock_daily)', "SELECT COUNT(*) FROM kline_cache WHERE source='stock_daily' AND trade_date=?"),
     ('big_buy_summary', 'SELECT COUNT(*) FROM big_buy_summary WHERE trade_date=?'),
     ('hzeveryday', 'SELECT COUNT(*) FROM hzeveryday WHERE 买入日期=?'),
     ('strategy_picks', 'SELECT COUNT(*) FROM strategy_picks WHERE date=?'),

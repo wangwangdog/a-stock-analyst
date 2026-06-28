@@ -75,6 +75,13 @@
             {{ rangeInfo.startPrice?.toFixed(2) }} → {{ rangeInfo.endPrice?.toFixed(2) }}
           </div>
         </div>
+        <!-- MACD 悬浮提示 -->
+        <div ref="macdTooltipRef" class="macd-tooltip" style="display:none">
+          <div class="macd-tooltip-title">MACD</div>
+          <div class="macd-tooltip-row"><span class="macd-dot dif"></span>DIF: <span class="macd-val dif-val"></span></div>
+          <div class="macd-tooltip-row"><span class="macd-dot dea"></span>DEA: <span class="macd-val dea-val"></span></div>
+          <div class="macd-tooltip-row"><span class="macd-bar-icon"></span>MACD: <span class="macd-val macd-val-bar"></span></div>
+        </div>
       </div>
     </div>
 
@@ -200,14 +207,8 @@
       </div>
     </div>
 
-    <!-- 子图区域：MACD, 买入额, 资金流入 -->
+    <!-- 子图区域：买入额, 资金流入 -->
     <div class="sub-charts-area">
-      <!-- MACD 子图 -->
-      <div class="sub-chart-item">
-        <div class="sub-chart-label">MACD</div>
-        <div class="sub-chart-canvas" ref="macdChartRef" id="macd-chart"></div>
-      </div>
-
       <!-- 买入额 子图（仅日线显示） -->
       <div class="sub-chart-item" v-show="showBigBuy">
         <div class="sub-chart-label">买入额(万元)</div>
@@ -277,7 +278,7 @@ const route = useRoute()
 const router = useRouter()
 
 const chartRef = ref(null)
-const macdChartRef = ref(null)
+const macdTooltipRef = ref(null)
 
 const bigbuyChartRef = ref(null)
 const ratioChartRef = ref(null)
@@ -830,14 +831,10 @@ let volSeries = null
 let maLines = []
 
 // 子图实例
-let macdChart = null
 let bigbuyChart = null
 let ratioChart = null
 let crChart = null
 
-let macdHistogram = null
-let macdLine = null
-let signalLine = null
 let bigbuyHistogram = null
 let ratioHistogram = null
 
@@ -986,7 +983,10 @@ function getStartDate(period) {
   }
   
   let startY = y
-  if (period === 'daily') startY = y - 1
+  if (period === 'daily') {
+    // 加载全量数据（与TV一致），2020年覆盖所有A股IPO
+    return '2020-01-01'
+  }
   else if (period === 'weekly') startY = y - 3
   else startY = y - 5
   return `${startY}-01-01`
@@ -1028,8 +1028,6 @@ function renderAllCharts() {
 
       // 主K线图
       renderMainChart(lw, times)
-      // MACD子图
-      renderMacdChart(lw, times)
       // 大单买入数子图
       if (showBigBuy.value) {
         renderBigbuyChart(lw, times)
@@ -1053,16 +1051,12 @@ function renderAllCharts() {
 
 function destroyAllCharts() {
   if (mainChart) { mainChart.remove(); mainChart = null }
-  if (macdChart) { macdChart.remove(); macdChart = null }
   if (bigbuyChart) { bigbuyChart.remove(); bigbuyChart = null }
   if (ratioChart) { ratioChart.remove(); ratioChart = null }
   if (crChart) { crChart.remove(); crChart = null }
   candleSeries = null
   volSeries = null
   maLines = []
-  macdHistogram = null
-  macdLine = null
-  signalLine = null
   bigbuyHistogram = null
   ratioHistogram = null
 }
@@ -1280,81 +1274,9 @@ function renderMainChart(lw, times) {
   }
 }
 
-// ====== MACD 子图 ======
-function renderMacdChart(lw, times) {
-  if (!macdChartRef.value) return
-  const { createChart, ColorType, HistogramSeries, LineSeries } = lw
-
-  macdChart = createChart(macdChartRef.value, {
-    layout: {
-      background: { type: ColorType.Solid, color: '#FFFEF5' },
-      textColor: '#666',
-    },
-    grid: {
-      vertLines: { color: '#f5f0e0' },
-      horzLines: { color: '#f5f0e0' },
-    },
-    crosshair: { mode: 0 },
-    rightPriceScale: {
-      borderColor: '#e8e0c8',
-      scaleMargins: { top: 0.1, bottom: 0.1 },
-    },
-    timeScale: {
-      borderColor: '#e8e0c8',
-      timeVisible: true,
-      secondsVisible: false,
-    },
-    handleScroll: false,
-    handleScale: false,
-    width: chartRef.value?.clientWidth || 360,
-    height: 120,
-  })
-
-  const macdInd = indData.value?.macd
-  if (!macdInd) return
-
-  // MACD 柱状图（从后端 MACD 字段取）
-  macdHistogram = macdChart.addSeries(HistogramSeries, {
-    priceFormat: { type: 'price' },
-  })
-  const histData = macdInd.MACD?.map((v, i) => ({
-    time: times[i],
-    value: v,
-    color: v >= 0 ? 'rgba(238,10,36,0.5)' : 'rgba(7,193,96,0.5)',
-  })).filter(d => d.value !== null && !isNaN(d.value)) || []
-  if (histData.length) macdHistogram.setData(histData)
-
-  // DIF 线（快线，蓝色）
-  macdLine = macdChart.addSeries(LineSeries, {
-    color: '#1890ff',
-    lineWidth: 1,
-    lastValueVisible: false,
-    priceLineVisible: false,
-    priceFormat: { type: 'price' },
-  })
-  const difData = macdInd.DIF?.map((v, i) => ({
-    time: times[i],
-    value: v,
-  })).filter(d => d.value !== null && !isNaN(d.value)) || []
-  if (difData.length) macdLine.setData(difData)
-
-  // DEA 线（慢线，橙色）
-  signalLine = macdChart.addSeries(LineSeries, {
-    color: '#fa8c16',
-    lineWidth: 1,
-    lastValueVisible: false,
-    priceLineVisible: false,
-    priceFormat: { type: 'price' },
-  })
-  const deaData = macdInd.DEA?.map((v, i) => ({
-    time: times[i],
-    value: v,
-  })).filter(d => d.value !== null && !isNaN(d.value)) || []
-  if (deaData.length) signalLine.setData(deaData)
-}
 
 
-
+// ====== 大单买入数子图（仅日线） ======
 // ====== 大单买入数子图（仅日线） ======
 function renderBigbuyChart(lw, times) {
   if (!bigbuyChartRef.value) return
@@ -1671,7 +1593,7 @@ function renderMainIndicators(lw) {
 // ====== 时间轴联动 ======
 function setupTimeScaleSync() {
   // 主K线图 + 所有子图（CR同样映射到times，与MACD一样用索引同步）
-  const allSameCountCharts = [mainChart, macdChart]
+  const allSameCountCharts = [mainChart]
   if (bigbuyChart) allSameCountCharts.push(bigbuyChart)
   if (ratioChart) allSameCountCharts.push(ratioChart)
   if (crChart) allSameCountCharts.push(crChart)

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "backend"))
 
 import baostock as bs
 
-DB = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
+DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 ADJUST_FLAG = "1"  # 后复权
 
 conn = sqlite3.connect(DB)

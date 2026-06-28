@@ -21,6 +21,8 @@
     <div class="sidebar-tabs" v-if="!searchResults.length">
       <span :class="['sidebar-tab', {active: sidebarSheet==='bigbuy'}]"
             @click="sidebarSheet='bigbuy'">大单</span>
+      <span :class="['sidebar-tab', {active: sidebarSheet==='strategies'}]"
+            @click="sidebarSheet='strategies'">策略</span>
       <span :class="['sidebar-tab', {active: sidebarSheet==='news'}]"
             @click="sidebarSheet='news'">新闻</span>
     </div>
@@ -42,6 +44,59 @@
           <span class="rank-days">{{ item.days }}天</span>
         </div>
         <div v-if="!bigBuyRank.length" class="sidebar-empty">暂无数据</div>
+      </div>
+    </template>
+
+    <!-- 策略 Sheet -->
+    <template v-if="sidebarSheet==='strategies' && !searchResults.length">
+      <div class="sidebar-strat-list">
+        <!-- 状态条 -->
+        <div class="strat-status" v-if="stratStatus.db_exists">
+          <van-tag type="success" size="small">✅ {{ stratStatus.stock_count }}只</van-tag>
+          <span class="strat-picks-badge" v-if="stratStatus.picks_today > 0">{{ stratStatus.picks_today }}选股</span>
+        </div>
+
+        <!-- 盘前 / 盘中 -->
+        <div class="strat-action-stack">
+          <van-button class="strat-btn-full" icon="clock-o" size="small" plain type="warning"
+                      :loading="preLoading" @click="runPreMarket">🌅 盘前策略</van-button>
+          <van-button class="strat-btn-full" icon="trending-up" size="small" plain type="danger"
+                      :loading="intraLoading" @click="runIntraday">⚡ 盘中策略</van-button>
+        </div>
+
+        <!-- 多策略 + 同步 -->
+        <div class="strat-action-stack">
+          <van-button class="strat-btn-full" size="small" plain type="primary"
+                      :loading="loadingMulti2" @click="doMultiPicks(2,2)">🎯 同时满足2个策略条件</van-button>
+          <van-button class="strat-btn-full" size="small" plain type="danger"
+                      :loading="loadingMulti3" @click="doMultiPicks(3)">🔥 同时满足3+个策略条件</van-button>
+          <van-button class="strat-btn-full" size="small" plain type="primary"
+                      :loading="syncing" @click="doSync">📥 每日同步</van-button>
+        </div>
+
+        <!-- 初筛 -->
+        <div class="strat-chushai">
+          <van-field v-model="chushaiRank" type="number" placeholder="起始排名" input-align="center"
+                     style="width:58px;flex-shrink:0" :border="true" size="small" />
+          <van-button icon="search" size="small" plain type="warning"
+                      :loading="loadingChushai" @click="doChushai">🔍 初筛</van-button>
+          <span v-if="chushaiTotal>0" class="chushai-total">{{ chushaiTotal }}只</span>
+        </div>
+
+        <!-- 策略列表 -->
+        <div class="strat-grid">
+          <div v-for="s in strategyList" :key="s.key"
+               class="strat-item"
+               :class="{ active: selectedKey === s.key }"
+               @click="selectStrategy(s.key)">
+            <span class="strat-item-name">{{ s.name }}</span>
+            <span class="strat-item-desc">{{ s.desc }}</span>
+            <span class="strat-item-badge" v-if="strategyPicks[s.key]?.length">
+              {{ strategyPicks[s.key].length }}
+            </span>
+          </div>
+          <div v-if="!strategyList.length" class="strat-empty">加载中...</div>
+        </div>
       </div>
     </template>
 
@@ -70,8 +125,9 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
+import { showToast, showLoadingToast, closeToast, showDialog } from 'vant'
 
-defineEmits(['select-stock'])
+const emit = defineEmits(['select-stock', 'view-news-chain'])
 
 const keyword = ref('')
 const searchResults = ref([])
@@ -85,6 +141,20 @@ const sidebarSheet = ref('bigbuy')
 const newsList = ref([])
 const newsOffset = ref(0)
 const newsLoading = ref(false)
+
+// ===== 策略 =====
+const syncing = ref(false)
+const preLoading = ref(false)
+const intraLoading = ref(false)
+const loadingMulti2 = ref(false)
+const loadingMulti3 = ref(false)
+const loadingChushai = ref(false)
+const strategyList = ref([])
+const strategyPicks = ref({})
+const selectedKey = ref(null)
+const stratStatus = ref({})
+const chushaiRank = ref(1)
+const chushaiTotal = ref(0)
 
 function setFilter(days) {
   filterDays.value = days
@@ -118,8 +188,7 @@ function goSearchResult(s) {
   if (s.type==='company') {
     searchResults.value=[]
     keyword.value=''
-    // @ts-ignore
-    $emit('select-stock', s.code)
+    emit('select-stock', s.code)
   }
 }
 
@@ -140,7 +209,7 @@ async function loadNews(append=false) {
   newsLoading.value = true
   try {
     const off = append ? newsOffset.value : 0
-    const resp = await fetch('/rss-api/list?limit=50&offset=' + off)
+    const resp = await fetch('/rss-api/list?limit=50&offset=' + off + '&_=' + Date.now())
     if (!resp.ok) { console.error('news fetch failed:', resp.status); return }
     const data = await resp.json()
     if (data && data.news && data.news.length) {
@@ -158,20 +227,165 @@ async function loadNews(append=false) {
 }
 function loadMoreNews() { loadNews(true) }
 function onNewsClick(item) {
-  if (item.link) window.open(item.link, '_blank')
+  if (item.link) emit('view-news-chain', item)
   else if (item.id === 'retry') { newsList.value = []; loadNews() }
 }
 
-// 切换到新闻 tab 时自动加载
+// ===== 策略功能 =====
+async function runPreMarket() {
+  preLoading.value = true
+  try {
+    const r = await fetch('/api/v1/strategy/pre-market', { method: 'POST' })
+    const data = await r.json()
+    if (data.status === 'ok') {
+      showDialog({ title: '🌅 盘前策略', message: data.report || JSON.stringify(data.result?.slice(0, 10) || [], null, 2) })
+    } else {
+      showToast({ message: data.error || '盘前策略执行失败', type: 'fail' })
+    }
+  } catch (e) {
+    showToast({ message: '请求失败', type: 'fail' })
+  } finally {
+    preLoading.value = false
+  }
+}
+async function runIntraday() {
+  intraLoading.value = true
+  try {
+    const r = await fetch('/api/v1/strategy/intraday', { method: 'POST' })
+    const data = await r.json()
+    if (data.status === 'ok') {
+      showDialog({ title: '⚡ 盘中策略', message: data.report || JSON.stringify(data.result?.slice(0, 10) || [], null, 2) })
+    } else {
+      showToast({ message: data.error || '盘中策略执行失败', type: 'fail' })
+    }
+  } catch (e) {
+    showToast({ message: '请求失败', type: 'fail' })
+  } finally {
+    intraLoading.value = false
+  }
+}
+async function doMultiPicks(minCount, maxCount = null) {
+  selectedKey.value = null
+  if (minCount === 2 && maxCount === 2) loadingMulti2.value = true
+  else loadingMulti3.value = true
+  const label = maxCount === 2 ? '满足2个策略' : '满足3+策略'
+  try {
+    const params = `min_count=${minCount}${maxCount ? `&max_count=${maxCount}` : ''}`
+    const r = await fetch(`/api/v1/strategy/multi-picks?${params}`)
+    const data = await r.json()
+    if (data.status === 'ok' && data.data?.length) {
+      const stocks = data.data.map(d => d.symbol).join(', ')
+      showDialog({ title: `🎯 ${label} — ${data.total}只`, message: stocks })
+    } else {
+      showToast({ message: '无匹配结果', type: 'fail' })
+    }
+  } catch (e) {
+    showToast({ message: '请求失败', type: 'fail' })
+  } finally {
+    loadingMulti2.value = false
+    loadingMulti3.value = false
+  }
+}
+async function doSync() {
+  syncing.value = true
+  const toast = showLoadingToast({ message: '🔄 同步中...', duration: 0 })
+  try {
+    const r = await fetch('/api/v1/strategy/sync', { method: 'POST' })
+    const data = await r.json()
+    if (data.status === 'started') {
+      const poll = setInterval(async () => {
+        try {
+          const sr = await fetch('/api/v1/strategy/sync/status')
+          const sd = await sr.json()
+          if (!sd.in_progress && sd.result) {
+            clearInterval(poll); closeToast()
+            if (sd.result.status === 'ok') {
+              showDialog({ title: '同步完成', message: `✅ 写入 ${sd.result.sync_count} 条\n已选 ${sd.result.total_picks} 只` })
+              loadStrategies()
+            } else {
+              showToast({ message: sd.result.error || '同步失败', type: 'fail' })
+            }
+          }
+        } catch {}
+      }, 2000)
+    } else {
+      closeToast()
+      showToast({ message: data.error || '同步启动失败', type: 'fail' })
+    }
+  } catch (e) {
+    closeToast()
+    showToast({ message: '请求失败', type: 'fail' })
+  } finally {
+    syncing.value = false
+  }
+}
+async function doChushai() {
+  loadingChushai.value = true
+  chushaiTotal.value = 0
+  const start = parseInt(chushaiRank.value) || 1
+  const end = start + 199
+  try {
+    await fetch('/api/v1/strategy/vol20day/refresh', { method: 'POST' })
+    const r = await fetch(`/api/v1/strategy/vol20day?min_rank=${start}&max_rank=${end}`)
+    const data = await r.json()
+    if (data.status === 'ok' && data.data?.length) {
+      const stocks = data.data.map(d => `${d.symbol} ${d.name||''} ${d.return_20d>=0?'+':''}${d.return_20d?.toFixed(2)}%`).join('\n')
+      chushaiTotal.value = data.total || 0
+      showDialog({ title: `🔍 初筛 排名${start}-${end} (共${data.total}只)`, message: stocks })
+    } else {
+      showToast({ message: '初筛无结果', type: 'fail' })
+    }
+  } catch (e) {
+    showToast({ message: '请求失败', type: 'fail' })
+  } finally {
+    loadingChushai.value = false
+  }
+}
+function selectStrategy(key) {
+  selectedKey.value = selectedKey.value === key ? null : key
+  const picks = strategyPicks.value[key]
+  if (picks?.length) {
+    showDialog({ title: `📊 ${STRATEGY_LABELS[key]||key} — ${picks.length}只`, message: picks.join(', ') })
+  } else {
+    showToast({ message: '该策略暂无选股', type: 'fail' })
+  }
+}
+const STRATEGY_LABELS = {
+  ma_volume: '均线放量', turtle_trade: '海龟交易', high_tight_flag: '高窄旗形',
+  limit_up_shakeout: '涨停洗盘', uptrend_limit_down: '跌停反包', rps_breakout: 'RPS突破',
+}
+async function loadStrategies() {
+  try {
+    const r = await fetch('/api/v1/strategy/list')
+    const data = await r.json()
+    strategyList.value = data.strategies || []
+  } catch { strategyList.value = [] }
+}
+async function loadPicks() {
+  try {
+    const r = await fetch('/api/v1/strategy/picks?today_only=true')
+    const data = await r.json()
+    strategyPicks.value = data.picks || {}
+  } catch { strategyPicks.value = {} }
+}
+async function loadStratStatus() {
+  try {
+    const r = await fetch('/api/v1/strategy/status')
+    stratStatus.value = await r.json()
+  } catch { stratStatus.value = {} }
+}
+
+// 切换到策略 tab 时自动加载数据
 watch(sidebarSheet, (val) => {
+  if (val === 'strategies' && !strategyList.value.length) {
+    loadStrategies(); loadPicks(); loadStratStatus()
+  }
   if (val === 'news' && !newsList.value.length && !newsLoading.value) {
     loadNews()
   }
 })
 
 onMounted(() => {
-  // 先渲染页面，再异步加载数据
-  // 使用 setTimeout 确保 VDOM 完成初始渲染后再发 API 请求
   setTimeout(() => {
     loadBigBuyRank()
     loadNews()
@@ -185,7 +399,7 @@ onMounted(() => {
 
 <style scoped>
 .sidebar-root {
-  width:200px; min-width:200px; background:#f5f7fa;
+  width:240px; min-width:240px; background:#f5f7fa;
   border-right:1px solid #e0e0e0; display:flex; flex-direction:column; overflow:hidden;
   height:100%;
 }
@@ -222,12 +436,50 @@ onMounted(() => {
   cursor:pointer; gap:2px;
 }
 .sidebar-item:hover { background:#e8f0fe; }
-.rank-num { width:14px; font-size:10px; color:#999; text-align:right; margin-right:2px; }
-.rank-name { flex:1; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.rank-code { font-size:9px; color:#999; }
-.rank-days { font-size:9px; color:#e74c3c; font-weight:600; }
+.rank-num { width:14px; font-size:11px; color:#999; text-align:right; margin-right:2px; }
+.rank-name { flex:1; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rank-code { font-size:10px; color:#999; }
+.rank-days { font-size:10px; color:#e74c3c; font-weight:600; }
 .sidebar-empty { padding:15px; text-align:center; color:#999; font-size:11px; }
 
+/* ===== 策略 ===== */
+.sidebar-strat-list { flex:1; overflow-y:auto; padding:4px; }
+.strat-status {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:4px 6px; margin-bottom:4px; background:#fff; border-radius:4px;
+}
+.strat-picks-badge {
+  background:#ee0a24; color:#fff; border-radius:8px; padding:1px 6px; font-size:10px; font-weight:600;
+}
+.strat-action-stack {
+  display:flex; flex-direction:column; gap:3px; margin-bottom:4px;
+}
+.strat-btn-full {
+  width:100% !important; font-size:11px !important; min-height:30px;
+}
+.strat-chushai {
+  display:flex; align-items:center; gap:4px; padding:4px 2px;
+  background:#fff; border-radius:4px; margin-bottom:4px;
+}
+.strat-chushai :deep(.van-field) { padding:0 4px; }
+.strat-chushai :deep(.van-field__control) { font-size:11px; }
+.chushai-total { font-size:10px; color:#999; white-space:nowrap; }
+.strat-grid { display:flex; flex-direction:column; gap:2px; }
+.strat-item {
+  display:flex; align-items:center; gap:4px; padding:6px 8px;
+  background:#fff; border-radius:4px; cursor:pointer; transition:all .15s;
+  border-left:3px solid transparent;
+}
+.strat-item:hover { background:#e8f0fe; }
+.strat-item.active { border-left-color:#1989fa; background:#f0f5ff; }
+.strat-item-name { font-size:12px; color:#323233; font-weight:500; flex-shrink:0; }
+.strat-item-desc { font-size:10px; color:#999; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.strat-item-badge {
+  background:#ee0a24; color:#fff; border-radius:8px; padding:0 5px; font-size:10px; font-weight:600; line-height:16px;
+}
+.strat-empty { padding:15px; text-align:center; color:#999; font-size:11px; }
+
+/* ===== 新闻 ===== */
 .sidebar-news-list { flex:1; overflow-y:auto; padding:4px 4px; }
 .news-item {
   display:flex; align-items:flex-start; gap:5px; padding:6px 5px;

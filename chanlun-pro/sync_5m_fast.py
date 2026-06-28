@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/cha
 os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 from chanlun.exchange.exchange_tdx import ExchangeTDX
 
-DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 INS = "INSERT OR IGNORE INTO kline_cache VALUES (?,?,?,?,?,?,?,?,?,?)"
 
 def main():

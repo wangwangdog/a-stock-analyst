@@ -6,7 +6,7 @@ sys.path.insert(0, "backend")
 
 import baostock as bs
 
-DB = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
+DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 
 conn = sqlite3.connect(DB)
 missing = [

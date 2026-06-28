@@ -17,7 +17,7 @@ os.environ['MOOTDX_SERVER'] = '180.153.18.170:7709'
 
 from data.mootdx_fetcher import get_klines_df, available
 
-DB_PATH = Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite'
+DB_PATH = Path('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite')
 
 
 def log(msg: str):
@@ -29,7 +29,7 @@ def get_stocks():
     """获取需要补全的股票列表"""
     conn = sqlite3.connect(DB_PATH)
     stocks = [r[0] for r in conn.execute(
-        "SELECT DISTINCT symbol FROM stock_daily ORDER BY symbol"
+        "SELECT DISTINCT symbol FROM kline_cache WHERE source='stock_daily' AND period='daily' ORDER BY symbol"
     ).fetchall()]
     conn.close()
     return stocks
@@ -40,7 +40,7 @@ def get_missing_5min_stocks():
     conn = sqlite3.connect(DB_PATH)
     today = date.today().strftime("%Y-%m-%d")
     
-    all_stocks = conn.execute("SELECT DISTINCT symbol FROM stock_daily").fetchall()
+    all_stocks = conn.execute("SELECT DISTINCT symbol FROM kline_cache WHERE source='stock_daily' AND period='daily'").fetchall()
     existing = conn.execute(
         f"SELECT DISTINCT symbol FROM kline_cache WHERE period='5min' AND trade_date LIKE '{today}%'"
     ).fetchall()

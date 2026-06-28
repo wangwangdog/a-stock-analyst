@@ -21,7 +21,7 @@ from typing import Any, Callable, Optional, Type
 import numpy as np
 
 # ─── 默认数据库路径 ───
-DB_PATH = Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite"
+DB_PATH = Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
 
 
 # ══════════════════════════════════════════════
@@ -99,16 +99,17 @@ def load_bars(symbol: str, start: str, end: str, db_path: Path = DB_PATH) -> lis
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     try:
-        # 先尝试 stock_daily 表
+        # 优先从 kline_cache 读取日线
         rows = conn.execute(
-            "SELECT date, open, high, low, close, volume, amount "
-            "FROM stock_daily WHERE symbol=? AND date>=? AND date<=? "
-            "ORDER BY date",
+            "SELECT trade_date AS date, open, high, low, close, volume, amount "
+            "FROM kline_cache WHERE symbol=? AND source='stock_daily' AND period='daily' "
+            "AND trade_date>=? AND trade_date<=? "
+            "ORDER BY trade_date",
             (symbol, start, end),
         ).fetchall()
 
         if not rows:
-            # 回退到 kline_cache
+            # 回退到 stock_daily
             rows = conn.execute(
                 "SELECT trade_date AS date, open, high, low, close, volume, "
                 "COALESCE(amount, 0) AS amount "

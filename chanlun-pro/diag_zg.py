@@ -7,7 +7,7 @@ sys.path.insert(0, SRC)
 import sqlite3, pandas as pd, json
 from pathlib import Path
 HOME = str(Path.home())
-DB = HOME + "/.chanlun_pro/db/chanlun_klines.sqlite"
+DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 
 def fetch_5m():
     conn = sqlite3.connect(DB)

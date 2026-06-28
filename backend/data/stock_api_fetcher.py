@@ -111,7 +111,7 @@ def _fetch_tencent_kline(symbol: str, count: int = 320) -> Optional[pd.DataFrame
                 "volume": float(r[5]) if len(r) > 5 else 0,
             })
         df = pd.DataFrame(records)
-        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        df["trade_date"] = df["trade_date"].astype(str).str[:10]
         return df
     except Exception as e:
         logger.debug(f"[stock-api] 腾讯K线解析失败 {symbol}: {e}")
@@ -219,7 +219,7 @@ def _fetch_eastmoney_kline(symbol: str, count: int = 320, fqt: str = "1") -> Opt
                 "volume": float(parts[5]),
             })
         df = pd.DataFrame(records)
-        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        df["trade_date"] = df["trade_date"].astype(str).str[:10]
         return df
     except Exception as e:
         logger.debug(f"[stock-api] 东方财富K线解析失败 {symbol}: {e}")

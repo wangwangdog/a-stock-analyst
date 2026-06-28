@@ -18,7 +18,7 @@ import feedparser
 
 logger = logging.getLogger('rss-fetcher')
 
-DB_PATH = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 
 # 标题相似度阈值（0~1，1=完全一致）
 TITLE_SIM_THRESHOLD = 0.85

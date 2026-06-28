@@ -114,8 +114,27 @@ def _migrate_v1_to_v2():
         conn.close()
 
 
+def _normalize_symbol(symbol: str) -> str:
+    """统一A股代码格式为 SH.XXXXXX / SZ.XXXXXX / BJ.XXXXXX"""
+    if "." in symbol:
+        return symbol  # 已含前缀
+    if len(symbol) != 6:
+        return symbol  # 非标准6位码，不动
+    prefixes = {
+        "5": "SH", "6": "SH", "9": "SH",
+        "0": "SZ", "2": "SZ", "3": "SZ",
+        "4": "BJ", "8": "BJ",
+    }
+    first = symbol[0]
+    pre = prefixes.get(first, "SZ")
+    return f"{pre}.{symbol}"
+
+
 def save_kline(symbol: str, source: str, df: pd.DataFrame, period: str = "daily"):
-    """批量保存K线数据"""
+    """批量保存K线数据，自动归一化symbol为全码"""
+    if df is None or df.empty:
+        return
+    symbol = _normalize_symbol(symbol)
     if df is None or df.empty:
         return
     conn = _get_conn()
@@ -137,7 +156,7 @@ def save_kline(symbol: str, source: str, df: pd.DataFrame, period: str = "daily"
 
         rows = []
         for _, row in df.iterrows():
-            td = str(row["trade_date"]).strip()[:19]  # 保留完整时间戳（秒级）
+            td = str(row["trade_date"]).strip()[:10] if period == "daily" else str(row["trade_date"]).strip()[:19]
             rows.append((
                 symbol, source, period, td,
                 float(row.get("open", 0)), float(row.get("close", 0)),

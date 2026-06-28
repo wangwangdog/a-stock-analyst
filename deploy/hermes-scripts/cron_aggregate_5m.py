@@ -14,7 +14,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sqlite3
 
-DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 
 # period -> 需要几根5m
 TARGET_PERIODS = {"15m": 3, "30m": 6, "60m": 12}

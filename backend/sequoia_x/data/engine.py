@@ -72,7 +72,7 @@ class DataEngine:
     def _get_last_date(self, symbol: str) -> str | None:
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute(
-                "SELECT MAX(date) FROM stock_daily WHERE symbol = ?",
+                "SELECT MAX(trade_date) FROM kline_cache WHERE symbol = ? AND source='baostock' AND period='daily'",
                 (symbol,),
             ).fetchone()
         return row[0] if row and row[0] else None
@@ -80,7 +80,7 @@ class DataEngine:
     def get_ohlcv(self, symbol: str) -> pd.DataFrame:
         with sqlite3.connect(self.db_path) as conn:
             df = pd.read_sql(
-                "SELECT * FROM stock_daily WHERE symbol = ? ORDER BY date",
+                "SELECT trade_date as date, open, high, low, close, volume, amount as turnover FROM kline_cache WHERE symbol = ? AND source='baostock' AND period='daily' ORDER BY trade_date",
                 conn,
                 params=(symbol,),
             )
@@ -100,8 +100,6 @@ class DataEngine:
         注意：baostock 的多进程并发会导致 Broken pipe，故使用单线程分批。
         """
         import baostock as bs
-        import socket
-        socket.setdefaulttimeout(15)
         from datetime import date, timedelta
 
         today_str = date.today().strftime("%Y-%m-%d")
@@ -109,7 +107,7 @@ class DataEngine:
         tasks = []
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
-                "SELECT symbol, MAX(date) FROM stock_daily GROUP BY symbol"
+                "SELECT symbol, MAX(trade_date) FROM kline_cache WHERE source='baostock' AND period='daily' GROUP BY symbol"
             ).fetchall()
 
         if not rows:
@@ -171,17 +169,20 @@ class DataEngine:
             logger.info("无新数据（可能非交易日）")
             return 0
 
-        df = pd.DataFrame(all_rows, columns=["symbol", "date", "open", "high", "low", "close", "volume", "turnover"])
-        for col in ["open", "high", "low", "close", "volume", "turnover"]:
+        df = pd.DataFrame(all_rows, columns=["symbol", "trade_date", "open", "high", "low", "close", "volume", "amount"])
+        for col in ["open", "high", "low", "close", "volume", "amount"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         df = df.dropna(subset=["close"])
         df = df[df["volume"] > 0]
 
+        df["source"] = "baostock"
+        df["period"] = "daily"
+
         count = len(df)
         with sqlite3.connect(self.db_path) as conn:
-            for d in df["date"].unique().tolist():
-                conn.execute("DELETE FROM stock_daily WHERE date = ?", (d,))
-            df.to_sql("stock_daily", conn, if_exists="append", index=False, method="multi")
+            for d in df["trade_date"].unique().tolist():
+                conn.execute("DELETE FROM kline_cache WHERE source='baostock' AND period='daily' AND trade_date = ?", (d,))
+            df.to_sql("kline_cache", conn, if_exists="append", index=False, method="multi")
             conn.commit()
 
         logger.info(f"sync_today_bulk: 写入 {count} 条数据")
@@ -190,8 +191,6 @@ class DataEngine:
     def backfill(self, symbols: list[str]) -> None:
         """通过 baostock 批量回填历史日 K 线数据（后复权）。已入库的自动 skip。"""
         import baostock as bs
-        import socket
-        socket.setdefaulttimeout(15)
         from datetime import date, timedelta
 
         today_str = date.today().strftime("%Y-%m-%d")
@@ -252,12 +251,18 @@ class DataEngine:
                     continue
 
                 df["symbol"] = symbol
-                df = df.rename(columns={"amount": "turnover"})
-                df = df[["symbol", "date", "open", "high", "low", "close", "volume", "turnover"]]
+                df["source"] = "baostock"
+                df["period"] = "daily"
+                df = df.rename(columns={"date": "trade_date"})
+                df = df[["symbol", "trade_date", "open", "high", "low", "close", "volume", "amount", "source", "period"]]
 
                 try:
                     with sqlite3.connect(self.db_path) as conn:
-                        df.to_sql("stock_daily", conn, if_exists="append", index=False, method="multi")
+                        # 先删该股该日期旧数据再写入
+                        dates = df["trade_date"].unique().tolist()
+                        placeholders = ','.join('?' * len(dates))
+                        conn.execute(f"DELETE FROM kline_cache WHERE source='baostock' AND period='daily' AND symbol=? AND trade_date IN ({placeholders})", [symbol] + dates)
+                        df.to_sql("kline_cache", conn, if_exists="append", index=False, method="multi")
                 except sqlite3.IntegrityError:
                     pass
 
@@ -303,6 +308,6 @@ class DataEngine:
     def get_local_symbols(self) -> list[str]:
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
-                "SELECT DISTINCT symbol FROM stock_daily"
+                "SELECT DISTINCT symbol FROM kline_cache WHERE source='baostock' AND period='daily'"
             ).fetchall()
         return [row[0] for row in rows]

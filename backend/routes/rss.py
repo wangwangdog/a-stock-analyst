@@ -6,12 +6,13 @@ import time
 import sqlite3
 from pathlib import Path
 from fastapi import APIRouter, Query, BackgroundTasks
+from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("rss_route")
 router = APIRouter(prefix="/rss-api", tags=["RSS新闻"])
 
 # chanlun-pro RSS 数据在 ~/.chanlun_pro/db/chanlun_klines.sqlite 的 rss_news_dedup 表
-RSS_DB = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
+RSS_DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 CL_RSS_FETCHER = str(Path(__file__).resolve().parent.parent.parent / "chanlun-pro" / "web" / "chanlun_chart" / "cl_app" / "rss_fetcher.py")
 
 # 源名映射
@@ -19,6 +20,7 @@ SOURCE_NAMES = {
     "trendradar": "TrendRadar",
     "buzzing_hn": "Buzzing HN",
     "buzzing_ph": "Buzzing PH",
+    "tavily": "Tavily 财经",
 }
 
 
@@ -53,24 +55,46 @@ async def rss_list(
         logger.error(f"RSS query failed: {e}")
         rows = []
 
-    return {
-        "news": [
-            {
-                "id": r["id"],
-                "source": r["source"],
-                "source_name": r["source_name"] or SOURCE_NAMES.get(r["source"], r["source"]),
-                "source_color": "#333",
-                "title": re.sub(r"<[^>]+>", "", r["title"]),
-                "link": r["link"],
-                "summary": r["summary"] or "",
-                "published": r["published"] or "",
-                "fetched_at": r["fetched_at"],
-            }
-            for r in rows
-        ],
-        "count": len(rows),
-        "offset": offset,
-    }
+    return JSONResponse(
+        content={
+            "news": [
+                {
+                    "id": r["id"],
+                    "source": r["source"],
+                    "source_name": r["source_name"] or SOURCE_NAMES.get(r["source"], r["source"]),
+                    "source_color": "#333",
+                    "title": re.sub(r"<[^>]+>", "", r["title"]),
+                    "link": r["link"],
+                    "summary": r["summary"] or "",
+                    "published": r["published"] or "",
+                    "fetched_at": _fmt_ts(r["fetched_at"]),
+                }
+                for r in rows
+            ],
+            "count": len(rows),
+            "offset": offset,
+        },
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
+def _fmt_ts(ts):
+    """Unix秒级时间戳 → ISO日期字符串（含时区）"""
+    if not ts:
+        return ""
+    try:
+        import datetime
+        dt = datetime.datetime.fromtimestamp(float(ts))
+        # 加时区偏移 +08:00
+        tz = datetime.timezone(datetime.timedelta(hours=8))
+        dt = dt.replace(tzinfo=tz)
+        return dt.isoformat()
+    except:
+        return str(ts)
 
 
 @router.get("/sources")

@@ -31,10 +31,10 @@ def get_conn():
 
 
 def get_all_symbols(conn):
-    """从 stock_daily 获取全量股票列表（最新交易日）"""
-    r = conn.execute("SELECT MAX(date) FROM stock_daily").fetchone()
+    """从 kline_cache 获取全量股票列表（最新交易日）"""
+    r = conn.execute("SELECT MAX(trade_date) FROM kline_cache WHERE source='stock_daily' AND period='daily'").fetchone()
     if not r or not r[0]:
-        print(f"[{now_s()}] ❌ stock_daily 无数据")
+        print(f"[{now_s()}] ❌ kline_cache(stock_daily) 无数据")
         return [], None
     latest = r[0]
     rows = conn.execute("SELECT DISTINCT symbol FROM stock_daily WHERE date=? ORDER BY symbol", (latest,)).fetchall()

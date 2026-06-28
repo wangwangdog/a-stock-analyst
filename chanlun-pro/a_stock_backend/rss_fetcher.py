@@ -14,7 +14,7 @@ import feedparser
 
 logger = logging.getLogger('rss-fetcher')
 
-DB_PATH = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 
 # RSS 订阅源配置
 RSS_SOURCES = {

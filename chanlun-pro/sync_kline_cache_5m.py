@@ -20,7 +20,7 @@ os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 import sqlite3
 import pandas as pd
 
-DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 PROGRESS_FILE = os.path.expanduser("~/.chanlun_pro/sync_5m_progress.json")
 BATCH_SIZE = 100   # 每批后 checkpoint
 LOG_EVERY = 50     # 每 50 只打日志
@@ -32,8 +32,8 @@ def get_db():
     return conn
 
 def get_stock_list(conn):
-    """从 stock_daily 取全部股票"""
-    rows = conn.execute("SELECT DISTINCT symbol FROM stock_daily WHERE date='2026-05-25' ORDER BY symbol").fetchall()
+    """从 all_stock_info 取全部股票"""
+    rows = conn.execute("SELECT symbol FROM all_stock_info ORDER BY symbol").fetchall()
     return [r[0] for r in rows]
 
 def fetch_tdx_5m(code: str):

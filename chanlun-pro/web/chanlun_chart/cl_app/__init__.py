@@ -60,7 +60,7 @@ def _get_ticks_cache_conn():
         import sqlite3
 
         _ticks_cache_conn = sqlite3.connect(
-            os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite"),
+            "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite",
             check_same_thread=False,
         )
     return _ticks_cache_conn

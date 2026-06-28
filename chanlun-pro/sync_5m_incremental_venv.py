@@ -5,7 +5,7 @@ import sys, os, time, sqlite3
 sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))
 os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 
-DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 INS = """INSERT OR IGNORE INTO kline_cache (symbol,source,period,trade_date,open,close,high,low,volume,amount) VALUES (?,?,?,?,?,?,?,?,?,?)"""
 
 def conn():
@@ -28,7 +28,7 @@ def pref(code):
     """裸码转带前缀完整代码"""
     if '.' in code:
         return code
-    # stock_daily 里是裸码
+    # kline_cache 里是裸码
     if code.startswith(('6','688','900')):
         return f'SH.{code}'
     if code.startswith(('0','3','002','200','300','301')):

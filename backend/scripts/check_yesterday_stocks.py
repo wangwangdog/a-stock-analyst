@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import sys
 
 # 配置
-DB_PATH = "/home/dogzi/.chanlun_pro/db/chanlun_klines.sqlite"
+DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 STRATEGY_ID = "limit_up_shakeout"
 
 # 东方财富 API 获取实时价格

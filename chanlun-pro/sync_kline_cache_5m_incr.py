@@ -11,7 +11,7 @@ import sqlite3
 import pandas as pd
 from chanlun.exchange.exchange_tdx import ExchangeTDX
 
-DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 
 def get_db():
     conn = sqlite3.connect(DB, timeout=60)
@@ -68,7 +68,7 @@ def main():
     
     # 全量股票
     all_stocks = [r[0] for r in conn.execute(
-        "SELECT DISTINCT symbol FROM stock_daily WHERE date='2026-05-25' ORDER BY symbol").fetchall()]
+        "SELECT symbol FROM all_stock_info ORDER BY symbol").fetchall()]
     
     # 分两类：已经有5m数据的 vs 没有的
     has_data = [s for s in all_stocks if conn.execute(

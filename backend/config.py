@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 # 数据库配置 — 统一指向 chanlun_klines.sqlite（主页面同源）
-DB_PATH = Path.home() / '.chanlun_pro' / 'db' / 'chanlun_klines.sqlite'
+DB_PATH = Path('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite')
 
 # 请求间隔（秒）
 REQUEST_INTERVAL = 0.1

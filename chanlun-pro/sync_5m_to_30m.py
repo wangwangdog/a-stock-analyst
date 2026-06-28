@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/cha
 import sqlite3
 import pandas as pd
 
-DB = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 LOG_EVERY = 200
 CP_EVERY = 500
 

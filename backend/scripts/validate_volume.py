@@ -15,7 +15,7 @@ import sqlite3
 import baostock as bs
 from loguru import logger
 
-DB = Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite"
+DB = Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
 ADJUST_FLAG = "1"  # 后复权，与 sequoia 引擎一致
 
 

@@ -23,7 +23,7 @@ from datetime import date, timedelta, datetime
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
-DB_PATH = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
+DB_PATH = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
 # 采样股列表：覆盖沪深主板/创业板/科创板 + 大中小盘 + 近期选股信号
 SAMPLE_SYMBOLS = [
     # 大盘蓝筹（沪深主板）

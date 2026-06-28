@@ -19,7 +19,7 @@ from pathlib import Path
 
 logger = logging.getLogger('anomaly_collector')
 
-DB_PATH = os.path.expanduser("~/.chanlun_pro/db/chanlun_klines.sqlite")
+DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 SCRIPT_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = SCRIPT_DIR.parent  # a_stock_backend/
 sys.path.insert(0, str(BACKEND_DIR))

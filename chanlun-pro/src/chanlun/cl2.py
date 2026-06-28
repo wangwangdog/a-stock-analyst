@@ -295,12 +295,9 @@ def _build_zss_from_bis(bis: List[BI], zs_type: str = "bi", config: dict = None)
                 exit_end = zs_lines[-1].end.val        # 离开笔终点
 
                 # ── 步骤4a：延伸扩展while循环 ──
-                # up: exit_end < zg → 未突破，继续延伸; exit_end ≥ zg → 突破结束
-                # down: exit_end > zd → 未突破，继续延伸; exit_end ≤ zd → 突破结束
                 # 延伸条件: 后续笔与中枢区间重叠(bh≥zd且bl≤zg)，则加入中枢线组
-                while ((zs_direction == "up" and exit_end < zg) or \
-                       (zs_direction == "down" and exit_end > zd)) \
-                      and SHOW_BIS_EXTEND and config.get('zs_extend', 1) and j < len(bis):
+                # 第5笔突破ZG/ZD后仍检查后续笔是否重叠——突破后下一笔若回到中枢则延伸（防假突破）
+                while SHOW_BIS_EXTEND and config.get('zs_extend', 1) and j < len(bis):
                     bh, bl = _bi_top(bis[j]), _bi_bottom(bis[j])
                     if bh >= zd and bl <= zg:
                         zs_lines.append(bis[j])
@@ -312,7 +309,6 @@ def _build_zss_from_bis(bis: List[BI], zs_type: str = "bi", config: dict = None)
                             zd = max(_bi_bottom(b) for b in sub)
                             gg = max(b.end.val for b in sub)
                             dd = min(b.end.val for b in sub)
-                        exit_end = zs_lines[-1].end.val  # 更新高度用于while条件判断
                     else:
                         break
                 # 延伸后突破确认：离开笔必须突破中枢区间
@@ -398,7 +394,8 @@ def _build_zss_from_bis(bis: List[BI], zs_type: str = "bi", config: dict = None)
             extended = False
             entry_end_val = zs_lines[0].end.val
             candidates = []
-            for off in [4, 6, 8]:  # 第5、7、9笔相对i的偏移
+            max_offset = len(bis) - i - 1
+            for off in range(4, max_offset + 1, 2):  # 第5、7、9、11…笔相对i的偏移
                 idx = i + off
                 if idx < len(bis):
                     bk = bis[idx]
@@ -407,30 +404,26 @@ def _build_zss_from_bis(bis: List[BI], zs_type: str = "bi", config: dict = None)
                            (zs_direction == "down" and bk.low < zd and bk.end.val < entry_end_val):
                             candidates.append((off, bk, idx))
             if candidates:
-                if len(candidates) >= 3 and SHOW_5_7_9_OPTIMIZE:
-                    # 5/7/9三笔都突破，按起点站稳 + 末端超越极值选择
-                    c5, c7, c9 = candidates[0], candidates[1], candidates[2]
-                    if zs_direction == "up":
-                        # 条件: 起点>ZG(不回头) 且 末端>GG(超越极值)
-                        c7_stable = c7[1].start.val > zg and c7[1].end.val > gg
-                        c9_stable = c9[1].start.val > zg and c9[1].end.val > gg
-                        if c7_stable:
-                            best = c5  # 7站稳 → 5笔完成
-                        elif c9_stable:
-                            best = c7  # 9站稳 → 7笔完成
+                if SHOW_5_7_9_OPTIMIZE:
+                    # 通用优选：遍历相邻候选对，若后一笔站稳则选前一笔
+                    # 站稳条件: up方向 起点>ZG(不回头)且末端>GG(超越极值)
+                    #           down方向 起点<ZD且末端<DD
+                    best = candidates[0]  # 默认选最早
+                    for ci in range(1, len(candidates)):
+                        prev = candidates[ci - 1]
+                        cur = candidates[ci]
+                        if zs_direction == "up":
+                            cur_stable = cur[1].start.val > zg and cur[1].end.val > gg
                         else:
-                            # 都没站稳，传统选最高
+                            cur_stable = cur[1].start.val < zd and cur[1].end.val < dd
+                        if cur_stable:
+                            best = prev  # 后一笔站稳 → 选前一笔（笔数小的是离开笔）
+                            break
+                    else:
+                        # 都没站稳 → 传统选最高/最低
+                        if zs_direction == "up":
                             best = max(candidates, key=lambda c: c[1].high)
-                    else:  # down
-                        # 条件: 起点<ZD(不回头) 且 末端<DD(超越极值)
-                        c7_stable = c7[1].start.val < zd and c7[1].end.val < dd
-                        c9_stable = c9[1].start.val < zd and c9[1].end.val < dd
-                        if c7_stable:
-                            best = c5  # 7站稳 → 5笔完成
-                        elif c9_stable:
-                            best = c7  # 9站稳 → 7笔完成
                         else:
-                            # 都没站稳，传统选最低
                             best = min(candidates, key=lambda c: c[1].low)
                 else:
                     if zs_direction == "up":
@@ -983,36 +976,6 @@ class CD(ICL):
                 break
 
         # ── 当前笔内CL K线不足5条：删除下两笔，当前笔终点连到后2笔起点 ──
-        if len(self._bis) >= 3:
-            valid = []
-            skip = 0
-            for idx in range(len(self._bis)):
-                if skip > 0:
-                    skip -= 1
-                    continue
-                b = self._bis[idx]
-                span = abs(b.end.k.index - b.start.k.index) + 1
-                if span < 5 and idx + 2 < len(self._bis):
-                    # 不足5根，删除下两笔，当前笔终点连到后2笔起点
-                    b.end = self._bis[idx + 2].start
-                    # 重新计算笔的高低点
-                    si = b.start.k.index
-                    ei = b.end.k.index
-                    if si >= 0 and si < len(self._cl_klines) and ei >= 0 and ei < len(self._cl_klines):
-                        if si > ei:
-                            si, ei = ei, si
-                        segment = self._cl_klines[si:ei+1] if hasattr(self, '_cl_klines') else []
-                        if segment:
-                            b.high = max(ck.h for ck in segment)
-                            b.low = min(ck.l for ck in segment)
-                            b.zs_high = max(b.high, b.low)
-                            b.zs_low = min(b.high, b.low)
-                    valid.append(b)
-                    skip = 2  # 跳过下两笔
-                else:
-                    valid.append(b)
-            self._bis = valid
-
         # ── 连续性修正 ──
         if len(self._bis) > 1:
             fixed = [self._bis[0]]

@@ -23,7 +23,7 @@ from sequoia_x.strategy.uptrend_limit_down import UptrendLimitDownStrategy
 from sequoia_x.strategy.rps_breakout import RpsBreakoutStrategy
 
 # ── 数据库路径：统一用 chanlun-pro 数据库 ──
-DB_PATH = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
+DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
 
 
 # ── 策略注册 ──
@@ -130,27 +130,28 @@ def check_status() -> dict:
 
 
 def get_daily_kline(symbol: str, start: str = None, end: str = None) -> Optional[list]:
-    """从 stock_daily 表读取日线K线（含 amount 成交额）"""
+    """从 kline_cache 表读取日线K线（stock_daily 数据已合并至此表）"""
     if not Path(DB_PATH).exists():
         return None
     conn = sqlite3.connect(DB_PATH)
     try:
-        sql = "SELECT date, open, high, low, close, volume, turnover FROM stock_daily WHERE symbol=?"
+        sql = ("SELECT trade_date, open, close, high, low, volume, amount "
+               "FROM kline_cache WHERE symbol=? AND source='tencent_fq' AND period='daily'")
         params = [symbol]
         if start:
-            sql += " AND date>=?"
+            sql += " AND trade_date>=?"
             params.append(start)
         if end:
-            sql += " AND date<=?"
+            sql += " AND trade_date<=?"
             params.append(end)
-        sql += " ORDER BY date ASC"
+        sql += " ORDER BY trade_date ASC"
         rows = conn.execute(sql, params).fetchall()
         if not rows:
             return None
         return [
             {
-                "date": r[0], "open": r[1], "high": r[2], "low": r[3], "close": r[4],
-                "volume": r[5], "amount": r[6] if r[6] else 0,
+                "date": r[0], "open": r[1], "close": r[2], "high": r[3], "low": r[4],
+                "volume": r[5] * 100, "amount": r[6] if r[6] else 0,
             }
             for r in rows
         ]
