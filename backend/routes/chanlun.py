@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/v1/chanlun", tags=["缠论分析"])
 
 # ── 数据库路径 ──
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
+DB_PATH = str(Path("/home/dogzi/sqlite-data/chanlun_klines.sqlite"))
 
 # ── chanlun-pro 适配层 ──
 import sys

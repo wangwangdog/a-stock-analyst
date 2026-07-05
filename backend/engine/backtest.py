@@ -21,7 +21,7 @@ from typing import Any, Callable, Optional, Type
 import numpy as np
 
 # ─── 默认数据库路径 ───
-DB_PATH = Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
+DB_PATH = Path("/home/dogzi/sqlite-data/chanlun_klines.sqlite")
 
 
 # ══════════════════════════════════════════════

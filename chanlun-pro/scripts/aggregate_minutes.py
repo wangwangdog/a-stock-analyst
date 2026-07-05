@@ -3,7 +3,7 @@
 import os, sqlite3, time
 from datetime import datetime
 
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 TARGETS = {"15m": 3, "30m": 6, "60m": 12}
 INS = "INSERT OR IGNORE INTO kline_cache (symbol,source,period,trade_date,open,close,high,low,volume,amount) VALUES (?,?,?,?,?,?,?,?,?,?)"
 

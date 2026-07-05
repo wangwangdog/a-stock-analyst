@@ -14,7 +14,7 @@ from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 LOG = "/tmp/migrate_all.log"
 
 def log(msg):

@@ -20,7 +20,7 @@ os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 import sqlite3
 import pandas as pd
 
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 PROGRESS_FILE = os.path.expanduser("~/.chanlun_pro/sync_5m_progress.json")
 BATCH_SIZE = 100   # 每批后 checkpoint
 LOG_EVERY = 50     # 每 50 只打日志

@@ -8,7 +8,7 @@ from chanlun.cl2 import CD
 from chanlun.cl_utils import query_cl_chart_config
 
 def load_klines(symbol, freq, limit=7200):
-    db = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+    db = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
     conn = sqlite3.connect(db)
     if freq == 'd':
         df = pd.read_sql("SELECT date, open, high, low, close, volume, turnover as amount FROM stock_daily WHERE symbol=? ORDER BY date DESC LIMIT ?", conn, params=(symbol, limit))

@@ -14,7 +14,7 @@ import feedparser
 
 logger = logging.getLogger('rss-fetcher')
 
-DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB_PATH = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 
 # RSS 订阅源配置
 RSS_SOURCES = {
@@ -31,6 +31,11 @@ RSS_SOURCES = {
     "buzzing_ph": {
         "url": "https://ph.buzzing.cc/rss.xml",
         "name": "Buzzing ProductHunt",
+        "enabled": True,
+    },
+    "buzzing_reddit": {
+        "url": "https://reddit.buzzing.cc/feed.xml",
+        "name": "Reddit Buzzing",
         "enabled": True,
     },
 }

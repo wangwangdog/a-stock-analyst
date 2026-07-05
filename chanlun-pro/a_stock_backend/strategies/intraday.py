@@ -20,7 +20,7 @@ from typing import Optional
 
 logger = logging.getLogger("intraday")
 
-DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB_PATH = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 
 # 科创/创业板涨停幅度
 _ZT_PCT_MAP = {

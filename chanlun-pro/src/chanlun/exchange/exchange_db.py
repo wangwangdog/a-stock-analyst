@@ -212,7 +212,7 @@ class ExchangeDB(Exchange):
         kline_pd = []
         if self.market == Market.A.value:
             import sqlite3, os, re
-            _db_path = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+            _db_path = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
             # 保留完整前缀代码（SH.000001 vs SZ.000001 不再冲突）
             _full_code = code
             _pure_code = re.sub(r'^[A-Z]+\.', '', code)
@@ -338,7 +338,7 @@ class ExchangeDB(Exchange):
 
     def all_stocks(self):
         try:
-            _db_path = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+            _db_path = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
             _conn = sqlite3.connect(_db_path)
             rows = _conn.execute(
                 "SELECT symbol, name FROM all_stock_info ORDER BY symbol"
@@ -398,7 +398,7 @@ class ExchangeDB(Exchange):
         # 从 all_stock_info 表查个股名称
         try:
             _pure_code = re.sub(r'^[A-Z]+\\.', '', code)
-            _db_path = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+            _db_path = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
             _conn = sqlite3.connect(_db_path)
             _row = _conn.execute(
                 "SELECT name FROM all_stock_info WHERE symbol=? LIMIT 1",

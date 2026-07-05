@@ -15,7 +15,7 @@ from rss_fetcher import get_conn, _get_content_id, _run_dedup_pipeline
 
 logger = logging.getLogger("tavily-fetcher")
 
-DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB_PATH = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 TAVILY_API_KEY = "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"
 
 # Tavily 搜索主题列表（覆盖 A 股财经/科技/行业热点）

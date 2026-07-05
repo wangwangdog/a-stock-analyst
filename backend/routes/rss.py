@@ -12,7 +12,7 @@ logger = logging.getLogger("rss_route")
 router = APIRouter(prefix="/rss-api", tags=["RSS新闻"])
 
 # chanlun-pro RSS 数据在 ~/.chanlun_pro/db/chanlun_klines.sqlite 的 rss_news_dedup 表
-RSS_DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
+RSS_DB = str(Path("/home/dogzi/sqlite-data/chanlun_klines.sqlite"))
 CL_RSS_FETCHER = str(Path(__file__).resolve().parent.parent.parent / "chanlun-pro" / "web" / "chanlun_chart" / "cl_app" / "rss_fetcher.py")
 
 # 源名映射

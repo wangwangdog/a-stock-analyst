@@ -11,7 +11,7 @@ import sqlite3
 import pandas as pd
 from chanlun.exchange.exchange_tdx import ExchangeTDX
 
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 
 def get_db():
     conn = sqlite3.connect(DB, timeout=60)

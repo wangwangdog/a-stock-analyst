@@ -60,7 +60,7 @@ def _get_ticks_cache_conn():
         import sqlite3
 
         _ticks_cache_conn = sqlite3.connect(
-            "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite",
+            "/home/dogzi/sqlite-data/chanlun_klines.sqlite",
             check_same_thread=False,
         )
     return _ticks_cache_conn
@@ -435,21 +435,29 @@ def create_app(test_config=None):
         limit = request.args.get("limit")
 
         if exchange is None or exchange == "":
-            return []
+            exchange = "a"  # 默认搜A股
+
+        # 去掉用户输入的市场前缀（SH./SZ./BJ.），因为 DB 存的是裸代码
+        query_clean = query.lower()
+        for prefix in ["sh.", "sz.", "bj."]:
+            if query_clean.startswith(prefix):
+                query_clean = query_clean[len(prefix):]
+                break
+
         ex = get_exchange(Market(exchange))
         all_stocks = ex.all_stocks()
 
         if exchange in ["currency", "currency_spot"]:
             res_stocks = [
-                stock for stock in all_stocks if query.lower() in stock["code"].lower()
+                stock for stock in all_stocks if query_clean in stock["code"].lower()
             ]
         else:
             res_stocks = [
                 stock
                 for stock in all_stocks
-                if query.lower() in stock["code"].lower()
-                or query.lower() in stock["name"].lower()
-                or query.lower()
+                if query_clean in stock["code"].lower()
+                or query_clean in stock["name"].lower()
+                or query_clean
                 in "".join([pinyin.get_initial(_p)[0] for _p in stock["name"]]).lower()
             ]
         res_stocks = res_stocks[0 : int(limit or 15)]
@@ -575,22 +583,30 @@ def create_app(test_config=None):
 
         # 根据 from_time 和 to_time 来获取对应的K线数据
         if firstDataRequest == "false":
-            _t = cl_chart_data["t"][-10:]
-            _c = cl_chart_data["c"][-10:]
-            _o = cl_chart_data["o"][-10:]
-            _h = cl_chart_data["h"][-10:]
-            _l = cl_chart_data["l"][-10:]
-            _v = cl_chart_data["v"][-10:]
-            _fxs = cl_chart_data["fxs"][-5:]
-            _bis = cl_chart_data["bis"][-5:]
-            _xds = cl_chart_data["xds"][-5:]
-            _zsds = cl_chart_data["zsds"][-5:]
-            _bi_zss = cl_chart_data["bi_zss"][-5:]
-            _xd_zss = cl_chart_data["xd_zss"][-5:]
-            _zsd_zss = cl_chart_data["zsd_zss"][-5:]
-            _bcs = cl_chart_data["bcs"][-5:]
-            _mmds = cl_chart_data["mmds"][-5:]
-            _trends = cl_chart_data.get("trends", [])[-5:]
+            _from_ts = int(_from)
+            _all_t = cl_chart_data["t"]
+            # 找到 from 时间戳之后的第一根K线
+            _start = 0
+            for i, t in enumerate(_all_t):
+                if t >= _from_ts:
+                    _start = i
+                    break
+            _t = _all_t[_start:]
+            _c = cl_chart_data["c"][_start:]
+            _o = cl_chart_data["o"][_start:]
+            _h = cl_chart_data["h"][_start:]
+            _l = cl_chart_data["l"][_start:]
+            _v = cl_chart_data["v"][_start:]
+            _fxs = cl_chart_data["fxs"][_start:]
+            _bis = cl_chart_data["bis"][_start:]
+            _xds = cl_chart_data["xds"][_start:]
+            _zsds = cl_chart_data["zsds"][_start:]
+            _bi_zss = cl_chart_data["bi_zss"][_start:]
+            _xd_zss = cl_chart_data["xd_zss"][_start:]
+            _zsd_zss = cl_chart_data["zsd_zss"][_start:]
+            _bcs = cl_chart_data["bcs"][_start:]
+            _mmds = cl_chart_data["mmds"][_start:]
+            _trends = cl_chart_data.get("trends", [])[_start:]
         else:
             _t = cl_chart_data["t"]
             _c = cl_chart_data["c"]

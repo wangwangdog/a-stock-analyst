@@ -4,7 +4,7 @@ import sys, os, time, sqlite3
 sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))
 os.environ['CHANLUN_PRO_PATH'] = os.path.expanduser("~/.chanlun_pro")
 
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 INS = """INSERT OR IGNORE INTO kline_cache (symbol,source,period,trade_date,open,close,high,low,volume,amount) VALUES (?,?,?,?,?,?,?,?,?,?)"""
 
 def conn():

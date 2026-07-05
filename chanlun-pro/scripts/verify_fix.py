@@ -9,7 +9,7 @@ import sqlite3
 print(f'SHOW_LAST_BI_MERGE = {SHOW_LAST_BI_MERGE}')
 
 # 从数据库取数据（和后端一样，365天）
-db_path = '/mnt/disk990g/sqlite-data/chanlun_klines.sqlite'
+db_path = '/home/dogzi/sqlite-data/chanlun_klines.sqlite'
 conn = sqlite3.connect(db_path)
 rows = conn.execute('''
     SELECT date, open, high, low, close, volume, turnover as amount

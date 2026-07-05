@@ -27,7 +27,7 @@ from typing import Optional
 
 logger = logging.getLogger("pre_market")
 
-DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB_PATH = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 SCRIPT_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = SCRIPT_DIR.parent
 if str(BACKEND_DIR) not in sys.path:

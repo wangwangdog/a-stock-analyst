@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 
 target_date = "2026-06-04"
-DB = str(Path('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite'))
+DB = str(Path('/home/dogzi/sqlite-data/chanlun_klines.sqlite'))
 
 print(f"开始补齐 {target_date} 日线数据...")
 

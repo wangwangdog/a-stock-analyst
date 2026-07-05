@@ -182,7 +182,7 @@ async def get_stock_supplement(symbol: str):
         # 尝试从 kline_cache 拿名称
         try:
             import sqlite3
-            conn = sqlite3.connect("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
+            conn = sqlite3.connect("/home/dogzi/sqlite-data/chanlun_klines.sqlite")
             cur = conn.execute(
                 "SELECT name FROM kline_cache WHERE symbol=? LIMIT 1",
                 (symbol,),

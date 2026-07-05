@@ -18,7 +18,7 @@ import baostock as bs
 import pandas as pd
 import sqlite3
 
-DB_PATH = Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
+DB_PATH = Path("/home/dogzi/sqlite-data/chanlun_klines.sqlite")
 
 BATCH_SIZE = 300   # 每批 300 只
 INTER_BATCH = 5    # 批间休息 5秒

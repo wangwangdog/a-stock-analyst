@@ -26,7 +26,7 @@ from pathlib import Path
 
 logger = logging.getLogger('fund_flow')
 
-DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB_PATH = str(Path.home() / ".chanlun_pro" / "db" / "chanlun_klines.sqlite")
 SCRIPT_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
@@ -143,7 +143,7 @@ def _fetch_eastmoney(symbol: str, limit: int = DAYS_BACK) -> list:
     for attempt in range(2):
         ua = headers[attempt % len(headers)]
         curl_cmd = [
-            "curl", "-s", "-4",
+            "curl", "-s", "-4", "--tlsv1.2",
             url,
             "-H", ua,
             "-H", "Referer: https://data.eastmoney.com/",
@@ -458,7 +458,8 @@ def collect_all(resume: bool = False, max_stocks: int = None):
     conn = _get_conn()
     rows = conn.execute(
         "SELECT DISTINCT symbol FROM kline_cache WHERE period='daily' AND source='tencent_fq' "
-        "AND symbol NOT LIKE '%.%' AND substr(symbol,1,1) IN ('0','3','6','9') ORDER BY symbol"
+        "AND symbol NOT LIKE 'SH.0%' AND symbol NOT LIKE 'SZ.399%' AND symbol NOT LIKE 'SH.880%' "
+        "ORDER BY symbol"
     ).fetchall()
     conn.close()
 
@@ -709,7 +710,7 @@ def _lazy_eastmoney_recovery(count: int = 5) -> str:
         ]:
             secid = _get_secid(sym)
             url = f"{BASE_URL}?secid={secid}&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&lmt={DAYS_BACK}"
-            curl_cmd = ["curl", "-s"]
+            curl_cmd = ["curl", "-s", "--tlsv1.2"]
             if params["ipv"]:
                 curl_cmd.append(params["ipv"])
             curl_cmd += [
@@ -961,10 +962,9 @@ def collect_daily_incremental(batch: int = 200) -> str:
     today = date.today().isoformat()
     conn = _get_conn()
 
-    # 获取全市场有日线数据的股票（不限 source，去重）
+    # 获取全市场有日线数据的股票（从 stock_daily 取，去重）
     stocks = conn.execute(
-        "SELECT DISTINCT symbol FROM kline_cache WHERE period='daily' "
-        "AND symbol NOT LIKE '%.%' "  # 只用裸码
+        "SELECT DISTINCT symbol FROM stock_daily "
         "ORDER BY symbol"
     ).fetchall()
     all_symbols = [r[0] for r in stocks]
@@ -996,8 +996,8 @@ def collect_daily_incremental(batch: int = 200) -> str:
 
         secid = _get_secid(sym)
         url = f"{BASE_URL}?secid={secid}&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65&lmt=3"
-        curl_cmd = ["curl", "-s", "-4", url,
-                    "-H", "User-Agent: Mozilla/5.0",
+        curl_cmd = ["curl", "-s", "-4", "--tlsv1.2", url,
+                    "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                     "-H", "Referer: https://data.eastmoney.com/",
                     "--max-time", "10"]
         try:

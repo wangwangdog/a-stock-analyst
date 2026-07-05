@@ -29,6 +29,14 @@
         :loading="intraLoading"
         @click="runIntraday"
       >⚡ 盘中策略</van-button>
+      <van-button
+        class="quantflow-btn"
+        icon="fire-o"
+        size="small"
+        plain
+        type="primary"
+        @click="$router.push('/panda-quantflow')"
+      >📊 策略管理</van-button>
     </div>
 
     <!-- 模式切换 Tab -->

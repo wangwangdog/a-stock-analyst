@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-DB_PATH = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
+DB_PATH = str(Path("/home/dogzi/sqlite-data/chanlun_klines.sqlite"))
 
 def get_stock_list():
     """从 chanlun DB 的 all_stock_info 获取全部 A 股代码"""

@@ -108,7 +108,7 @@ async def trigger_sync():
                     strategies = [(key, cls(engine, settings)) for key, cls in STRATEGY_CLASSES.items()]
                     import sqlite3
                     from pathlib import Path
-                    DB = str(Path('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite'))
+                    DB = str(Path('/home/dogzi/sqlite-data/chanlun_klines.sqlite'))
                     conn = sqlite3.connect(DB)
                     conn.execute("DELETE FROM strategy_picks WHERE date=?", (today,))
                     all_picks = []

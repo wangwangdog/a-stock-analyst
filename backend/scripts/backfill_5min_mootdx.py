@@ -17,7 +17,7 @@ os.environ['MOOTDX_SERVER'] = '180.153.18.170:7709'
 
 from data.mootdx_fetcher import get_klines_df, available
 
-DB_PATH = Path('/mnt/disk990g/sqlite-data/chanlun_klines.sqlite')
+DB_PATH = Path('/home/dogzi/sqlite-data/chanlun_klines.sqlite')
 
 
 def log(msg: str):

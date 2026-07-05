@@ -17,7 +17,7 @@ logger = logging.getLogger('quick_analysis')
 
 # SQLite cache path
 CACHE_DIR = Path(__file__).resolve().parent / "data"
-DB_PATH = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
+DB_PATH = str(Path("/home/dogzi/sqlite-data/chanlun_klines.sqlite"))
 
 
 def _get_kline_from_cache(ticker: str, days: int = 60) -> list[dict]:

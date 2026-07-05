@@ -6,7 +6,7 @@ import sys
 import subprocess
 from datetime import datetime, timedelta
 
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 WORK_DIR = "/home/dogzi/.openclaw/workspace/a-stock-analyst/chanlun-pro"
 VENV_PYTHON = f"{WORK_DIR}/.venv/bin/python3"
 

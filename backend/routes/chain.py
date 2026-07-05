@@ -23,22 +23,28 @@ router = APIRouter(prefix="/api/v1", tags=["产业链"])
 logger = logging.getLogger("chain_route")
 
 # 数据库路径
-_chain_db = Path(__file__).resolve().parent.parent.parent / "data" / "chain.db"
-_main_db = Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
+_main_db = Path("/home/dogzi/sqlite-data/chanlun_klines.sqlite")
 
 
 def _get_chain_conn():
-    """获取产业链数据库连接"""
-    conn = sqlite3.connect(str(_chain_db))
+    """获取产业链数据库连接（主库）"""
+    conn = sqlite3.connect(str(_main_db))
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def _check_chain_db():
     """检查产业链数据库是否已导入"""
-    if not _chain_db.exists():
+    if not _main_db.exists():
+        raise HTTPException(503, detail="主数据库不存在")
+    conn = sqlite3.connect(str(_main_db))
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('chain_companies', 'chain_supply_relations')"
+    ).fetchall()]
+    conn.close()
+    if 'chain_companies' not in tables:
         raise HTTPException(503, detail="产业链数据库未就绪，请先运行 chain_import")
-    return str(_chain_db)
+    return str(_main_db)
 
 
 # ===== 产业链查询 API =====
@@ -661,6 +667,62 @@ def get_news_chain_graph(
                     cn_entity = (code, name)
                     break
 
+        # ===== 供应链动态匹配：查询海外实体库 =====
+        supply_overseas = None
+        supply_relations = []
+        if not foreign_entity and not cn_entity:
+            # 先按单家海外实体名匹配（长词优先）
+            entities = conn.execute(
+                "SELECT code, name, fullname, country FROM chain_overseas_entities ORDER BY LENGTH(name) DESC"
+            ).fetchall()
+            for ent in entities:
+                names_to_check = [ent["name"], ent["fullname"]] if ent["fullname"] else [ent["name"]]
+                for n in names_to_check:
+                    if n and (n in text or n.lower() in text_lc):
+                        supply_overseas = [dict(ent)]
+                        break
+                if supply_overseas:
+                    break
+
+            # 未匹配则试 $TICKER（如 $MRVL → code MRVL）和英文名
+            if not supply_overseas:
+                tickers = re.findall(r'\$([A-Z]{1,5})\b', text)
+                for ent in entities:
+                    ent_code = ent["code"]
+                    # $TICKER 匹配
+                    if ent_code in tickers:
+                        supply_overseas = [dict(ent)]
+                        break
+                    # 英文/拼音名匹配（小写）
+                    for alias in [ent_code.lower(), ent["name"].lower(), (ent["fullname"] or "").lower()]:
+                        if alias and alias in text_lc:
+                            supply_overseas = [dict(ent)]
+                            break
+                    if supply_overseas:
+                        break
+
+            # 未匹配到具体实体，再试存储/HBM行业关键词（命中则匹配三家）
+            if not supply_overseas:
+                storage_kws = ["hbm", "存储芯片", "闪存", "dram", "nand", "存储", "内存"]
+                for skw in storage_kws:
+                    if skw in text_lc:
+                        rows = conn.execute(
+                            "SELECT code, name, country FROM chain_overseas_entities"
+                        ).fetchall()
+                        if rows:
+                            supply_overseas = [dict(r) for r in rows]
+                        break
+
+        # 已命中 CN_TOPIC_MAP 但文本含存储关键词时，额外跑供应链匹配
+        if not supply_overseas and cn_entity and not foreign_entity:
+            storage_kws = ["hbm", "存储", "存储芯片", "闪存", "dram", "nand", "内存"]
+            if any(kw in text_lc for kw in storage_kws):
+                rows = conn.execute(
+                    "SELECT code, name, country FROM chain_overseas_entities"
+                ).fetchall()
+                if rows:
+                    supply_overseas = [dict(r) for r in rows]
+
         # 数据库模糊匹配
         if not cn_entity:
             words = re.findall(r'[\u4e00-\u9fff]{2,4}', title)
@@ -670,12 +732,45 @@ def get_news_chain_graph(
                     cn_entity = (row["code"], row["name"])
                     break
 
+        # ===== 供应链匹配：拉供应商关系 =====
+        if supply_overseas and not cn_entity:
+            # 以第一个海外实体的第一家供应商作为 cn_entity
+            for ov in supply_overseas:
+                suppliers = conn.execute("""
+                    SELECT r.supplier_code, r.supplier_name, c.name as stock_name
+                    FROM chain_supply_relations r
+                    LEFT JOIN chain_companies c ON r.supplier_code = c.code
+                    WHERE r.buyer_code = ? AND r.supplier_code IS NOT NULL
+                    LIMIT 1
+                """, (ov["code"],)).fetchall()
+                if suppliers:
+                    s = suppliers[0]
+                    cn_entity = (s["supplier_code"], s["stock_name"] or s["supplier_name"])
+                    break
+
+        if supply_overseas:
+            for ov in supply_overseas:
+                rows = conn.execute("""
+                    SELECT r.*, c.name as stock_name,
+                           cat.label as category_label
+                    FROM chain_supply_relations r
+                    LEFT JOIN chain_companies c ON r.supplier_code = c.code
+                    LEFT JOIN chain_supply_categories cat ON r.category = cat.id
+                    WHERE r.buyer_code = ?
+                    ORDER BY r.category, r.supplier_name
+                """, (ov["code"],)).fetchall()
+                supply_relations.extend([dict(r) for r in rows])
+
         # 无匹配 → 返回空
         if not cn_entity:
             return {"status": "ok", "title": title, "steps": [{"icon": "🔍", "label": f"新闻分析：{title[:40]}..."}, {"icon": "❌", "label": "未匹配到相关公司"}], "graph_domestic": {"nodes": [], "edges": []}, "graph_foreign": {"nodes": [], "edges": []}, "bridges": []}
 
         if not foreign_entity:
-            foreign_entity = (None, "全球", "", [cn_entity])
+            if supply_overseas and len(supply_overseas) == 1:
+                ov = supply_overseas[0]
+                foreign_entity = (ov["name"], ov["country"], "", [cn_entity])
+            else:
+                foreign_entity = (None, "全球", "", [cn_entity])
 
         # ===== Step 2: 构建国内图谱（带 edgeType） =====
         dc_code, dc_name = cn_entity
@@ -705,6 +800,24 @@ def get_news_chain_graph(
             for down in conn.execute("SELECT to_entity FROM chain_product_relation WHERE from_entity=? AND rel='下游产品' LIMIT 2", (pname,)).fetchall():
                 _add(f"down_{down['to_entity']}", down['to_entity'], "downstream")
                 _edge(f"prod_{pname}", f"down_{down['to_entity']}", "下游", "downstream")
+
+        # 供应链节点（海外巨头的国内供应商）
+        if supply_relations:
+            seen_cats = set()
+            for sr in supply_relations:
+                cat_label = sr["category_label"] or sr["category"]
+                if cat_label not in seen_cats:
+                    _add(f"supcat_{sr['category']}", cat_label, "supply_category")
+                    seen_cats.add(cat_label)
+                sup_id = f"sup_{sr['supplier_name']}"
+                sup_label = sr["stock_name"] or sr["supplier_name"]
+                if sr["supplier_code"]:
+                    sup_label = f"{sup_label}({sr['supplier_code']})"
+                _add(sup_id, sup_label, "supplier", {
+                    "coverage": sr["coverage"],
+                    "supplier_code": sr["supplier_code"] or "",
+                })
+                _edge(f"supcat_{sr['category']}", sup_id, sr["coverage"], "supplies")
 
         # ===== Step 3: 构建国外图谱 =====
         fn_name = foreign_entity[0] if foreign_entity else None
@@ -739,6 +852,17 @@ def get_news_chain_graph(
                 _fn_add(f"cat_{cat}", short, "industry")
                 _fn_edge(fcid, f"cat_{cat}", "进出口", "belongs_to")
 
+        # 多海外实体节点（供应链匹配到多家时）
+        if supply_overseas and len(supply_overseas) > 1:
+            for ov in supply_overseas:
+                _fn_add(f"foreign_{ov['name'].replace(' ', '_')}", ov["name"], "company", {"main": True})
+                _fn_add(f"cntry_{ov['country'].replace(' ', '_')}", ov["country"], "country")
+                _fn_edge(
+                    f"foreign_{ov['name'].replace(' ', '_')}",
+                    f"cntry_{ov['country'].replace(' ', '_')}",
+                    "总部所在地", "belongs_to",
+                )
+
         # ===== Step 4: 桥梁边 =====
         bridges = []
         if fn_name:
@@ -762,11 +886,31 @@ def get_news_chain_graph(
                     "label": "对标关系", "edgeType": "foreign_peer",
                 })
 
+        # 供应链桥梁（海外巨头 → 国内供应商品类）
+        if supply_overseas and supply_relations:
+            seen_cat_bridges = set()
+            for ov in supply_overseas:
+                ov_id = f"foreign_{ov['name'].replace(' ', '_')}"
+                for sr in supply_relations:
+                    cat_key = sr["category"]
+                    if cat_key not in seen_cat_bridges:
+                        seen_cat_bridges.add(cat_key)
+                        bridges.append({
+                            "source": f"supcat_{cat_key}", "source_type": "supply_category",
+                            "target": ov_id, "target_type": "overseas",
+                            "label": f"供应 {ov['name']}", "edgeType": "supply_chain",
+                        })
+
         # ===== Step 5: 组装 =====
         steps = []
         steps.append({"icon": "🔍", "label": f"新闻分析：{title[:40]}..."})
-        steps.append({"icon": "🏢", "label": f"识别：{dc_name} ({dc_code})" + (f" → 对标 {fn_label}" if foreign_entity else "")})
-        steps.append({"icon": "🌐", "label": f"国外对标：{fn_label} ({fn_country})"})
+        steps.append({"icon": "🏢", "label": f"识别：{dc_name} ({dc_code})" + (f" → 对标 {fn_label}" if foreign_entity and foreign_entity[0] else "")})
+        if fn_name:
+            steps.append({"icon": "🌐", "label": f"国外对标：{fn_label} ({fn_country})"})
+        if supply_relations:
+            cat_count = len(set(sr["category"] for sr in supply_relations))
+            sup_count = len(set(sr["supplier_name"] for sr in supply_relations))
+            steps.append({"icon": "🔗", "label": f"供应链：{sup_count} 家供应商 · {cat_count} 个品类"})
         steps.append({"icon": "🗺️", "label": f"生成图谱：国内 {len(dn_nodes)} 节点 · 全球 {len(fn_nodes)} 节点"})
 
         return {
@@ -833,6 +977,168 @@ def get_news_supply_chain(
             if kw in text_lc or kw in title:
                 cn_entity = (code, name)
                 break
+    # 查海外实体表（中文名匹配 — 支持简称如"海力士"→"SK海力士"）
+    overseas_code = None
+    if not foreign_entity:
+        try:
+            conn = _get_chain_conn()
+            for oe in conn.execute("SELECT code, name, fullname FROM chain_overseas_entities").fetchall():
+                oe_name = oe["name"]
+                oe_code = oe["code"]
+                oe_fullname = oe["fullname"] or ""
+                # 精确含中文名/英文名
+                if oe_name in title or oe_name in text_lc or oe_fullname in title or oe_fullname in text_lc:
+                    overseas_code = oe_code
+                    break
+                # 中文名拆词：SK海力士 → 匹配"海力士"
+                for part in re.findall(r'[\u4e00-\u9fff]{2,}', oe_name):
+                    if part in title or part in text_lc:
+                        overseas_code = oe["code"]
+                        break
+                if overseas_code:
+                    break
+                # 英文/拼音名匹配 + $TICKER 匹配
+                # 1) 硬编码别名（兼容旧数据）
+                aliases = {"SAMSUNG": ["samsung", "삼성"], "SK_HYNIX": ["sk hynix", "hynix", "하이닉스"], "MICRON": ["micron", "마이크론"]}
+                for alias in aliases.get(oe["code"], []):
+                    if alias in text_lc:
+                        overseas_code = oe["code"]
+                        break
+                if overseas_code:
+                    break
+                # 2) 通用英文名匹配（code 小写、name 英文、fullname 英文）
+                for alias in [oe["code"].lower(), (oe["name"] or "").lower()]:
+                    if alias and len(alias) > 1 and alias in text_lc:
+                        overseas_code = oe["code"]
+                        break
+                if overseas_code:
+                    break
+                # 3) $TICKER 匹配（如 $MRVL → MRVL）
+                tickers = re.findall(r'\$([A-Z]{1,5})\b', text)
+                if oe["code"] in tickers:
+                    overseas_code = oe["code"]
+                    break
+            conn.close()
+        except:
+            pass
+
+    # 关键词触发：存储/HBM/内存 → 同时查三家海外巨头
+    _storage_kws = ["存储", "hbm", "内存", "dram", "nand", "闪存"]
+    if not overseas_code:
+        for kw in _storage_kws:
+            if kw in title.lower() or kw in text_lc:
+                # 返回所有海外实体的供应链
+                overseas_code = "__ALL__"
+                break
+
+    if overseas_code:
+        # === 海外实体供应链模式 ===
+        conn = _get_chain_conn()
+        try:
+            is_all = (overseas_code == "__ALL__")
+
+            # 查询海外实体信息
+            if is_all:
+                overseas_list = conn.execute("SELECT code, name FROM chain_overseas_entities").fetchall()
+                # 查所有海外实体的供应链
+                placeholders = ",".join("?" * len(overseas_list))
+                codes = [r["code"] for r in overseas_list]
+                rows = conn.execute(f"""
+                    SELECT r.buyer_code, r.category, c.label as cat_label, r.supplier_code, r.supplier_name, r.notes
+                    FROM chain_supply_relations r
+                    LEFT JOIN chain_supply_categories c ON r.category = c.id
+                    WHERE r.buyer_code IN ({placeholders})
+                    ORDER BY r.buyer_code, r.category, r.supplier_code
+                """, codes).fetchall()
+                oe_name = f"{len(overseas_list)}家海外巨头"
+            else:
+                oe = conn.execute("SELECT code, name FROM chain_overseas_entities WHERE code=?", (overseas_code,)).fetchone()
+                if not oe:
+                    raise ValueError("海外实体未找到")
+                oe_name = oe["name"]
+                rows = conn.execute("""
+                    SELECT r.buyer_code, r.category, c.label as cat_label, r.supplier_code, r.supplier_name, r.notes
+                    FROM chain_supply_relations r
+                    LEFT JOIN chain_supply_categories c ON r.category = c.id
+                    WHERE r.buyer_code = ?
+                    ORDER BY r.category, r.supplier_code
+                """, (overseas_code,)).fetchall()
+
+            # 构建国内供应商图谱（按品类分组）
+            dn_nodes, dn_edges, dn_ids = [], [], set()
+            cats = set()
+
+            def _add(nid, label, ntype, main=False):
+                if nid not in dn_ids:
+                    dn_ids.add(nid)
+                    dn_nodes.append({"id": nid, "label": label, "type": ntype, "main": main})
+
+            def _edge(s, t, label="", et=""):
+                if not any(e["source"] == s and e["target"] == t for e in dn_edges):
+                    dn_edges.append({"source": s, "target": t, "label": label, "edgeType": et})
+
+            # 品类节点 + 供应商节点
+            for r in rows:
+                if r["cat_label"] and r["category"] not in cats:
+                    cats.add(r["category"])
+                    _add(f"cat_{r['category']}", r["cat_label"], "category")
+                _add(f"co_{r['supplier_code']}", r["supplier_name"] or r["supplier_code"], "company")
+                _edge(f"co_{r['supplier_code']}", f"cat_{r['category']}", "所属品类", "belongs_to")
+
+            # 海外图谱
+            fn_nodes, fn_ids = [], set()
+            def _fn(nid, label, ntype):
+                if nid not in fn_ids:
+                    fn_ids.add(nid)
+                    fn_nodes.append({"id": nid, "label": label, "type": ntype})
+
+            if is_all:
+                for oe_entity in overseas_list:
+                    _fn(f"foreign_{oe_entity['code']}", oe_entity["name"], "company")
+            else:
+                _fn(f"foreign_{overseas_code}", oe_name, "company")
+
+            # 桥梁：品类 → 海外实体
+            bridges = []
+            if is_all:
+                # 每个品类连接到所有海外实体
+                for cid in cats:
+                    for oe_entity in overseas_list:
+                        bridges.append({
+                            "source": f"cat_{cid}", "source_type": "category",
+                            "target": f"foreign_{oe_entity['code']}", "target_type": "company",
+                            "label": "供应", "edgeType": "supply",
+                        })
+            else:
+                for cid in cats:
+                    bridges.append({
+                        "source": f"cat_{cid}", "source_type": "category",
+                        "target": f"foreign_{overseas_code}", "target_type": "company",
+                        "label": "供应", "edgeType": "supply",
+                    })
+
+            supplier_count = len(set(r["supplier_code"] for r in rows))
+            steps = [
+                {"icon": "🔍", "label": f"新闻分析：{title[:40]}..."},
+                {"icon": "🌐", "label": f"识别海外实体：{oe_name}"},
+                {"icon": "🔗", "label": f"查询到 {supplier_count} 家供应商，{len(cats)} 个品类"},
+            ]
+
+            return {
+                "status": "ok",
+                "title": title,
+                "mode": "supply_chain",
+                "main_domestic": {"name": f"{supplier_count}家供应商"},
+                "main_foreign": {"name": oe_name},
+                "steps": steps,
+                "graph_domestic": {"nodes": dn_nodes, "edges": dn_edges},
+                "graph_foreign": {"nodes": fn_nodes, "edges": []},
+                "bridges": bridges,
+            }
+        finally:
+            conn.close()
+
+    # 未匹配海外实体 → 原有逻辑（关键词映射/公司匹配）
     if not cn_entity:
         try:
             conn = _get_chain_conn()
@@ -924,7 +1230,7 @@ def get_news_supply_chain(
 
 # ===== 智能展开（双击企业节点调用 Ollama 分析上下游）=====
 
-_chain_db_path = str(_chain_db)
+_chain_db_path = str(_main_db)
 
 
 @router.get("/chain/expand-smart")
@@ -1023,7 +1329,7 @@ import uuid as _uuid
 
 def _init_news_queue():
     """初始化 news_analysis_queue 表"""
-    db = _chain_db
+    db = _main_db
     conn = sqlite3.connect(str(db))
     conn.execute("""
         CREATE TABLE IF NOT EXISTS news_analysis_queue (
@@ -1051,7 +1357,7 @@ def submit_news_analysis(body: dict):
         return {"status": "error", "message": "需要标题"}
 
     task_id = str(_uuid.uuid4())[:8]
-    conn = sqlite3.connect(str(_chain_db))
+    conn = sqlite3.connect(str(_main_db))
     conn.execute(
         "INSERT INTO news_analysis_queue (id, title, summary, status) VALUES (?, ?, ?, 'pending')",
         (task_id, title, summary),
@@ -1064,7 +1370,7 @@ def submit_news_analysis(body: dict):
 @router.get("/chain/news-request/{task_id}")
 def get_news_analysis_result(task_id: str):
     """查询新闻分析结果"""
-    conn = sqlite3.connect(str(_chain_db))
+    conn = sqlite3.connect(str(_main_db))
     conn.row_factory = sqlite3.Row
     row = conn.execute(
         "SELECT id, title, status, result, created_at, updated_at FROM news_analysis_queue WHERE id=?",
@@ -1091,7 +1397,7 @@ def get_news_analysis_result(task_id: str):
 @router.get("/chain/news-queue-pending")
 def list_pending_requests(limit: int = 10):
     """列出待处理的分析请求（给 Hermes cron job 用）"""
-    conn = sqlite3.connect(str(_chain_db))
+    conn = sqlite3.connect(str(_main_db))
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         "SELECT id, title, summary, created_at FROM news_analysis_queue WHERE status='pending' ORDER BY created_at ASC LIMIT ?",
@@ -1116,7 +1422,7 @@ def update_news_result(body: dict):
     if not task_id:
         return {"status": "error", "message": "需要 task_id"}
 
-    conn = sqlite3.connect(str(_chain_db))
+    conn = sqlite3.connect(str(_main_db))
     conn.execute(
         "UPDATE news_analysis_queue SET status=?, result=?, updated_at=datetime('now','localtime') WHERE id=?",
         (status, json.dumps(result_json, ensure_ascii=False), task_id),

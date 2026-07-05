@@ -23,7 +23,7 @@ from sequoia_x.strategy.uptrend_limit_down import UptrendLimitDownStrategy
 from sequoia_x.strategy.rps_breakout import RpsBreakoutStrategy
 
 # ── 数据库路径：统一用 chanlun-pro 数据库 ──
-DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB_PATH = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 
 
 # ── 策略注册 ──

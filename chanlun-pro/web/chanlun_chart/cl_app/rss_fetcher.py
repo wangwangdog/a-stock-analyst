@@ -18,7 +18,7 @@ import feedparser
 
 logger = logging.getLogger('rss-fetcher')
 
-DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB_PATH = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 
 # 标题相似度阈值（0~1，1=完全一致）
 TITLE_SIM_THRESHOLD = 0.85
@@ -38,6 +38,11 @@ RSS_SOURCES = {
     "buzzing_ph": {
         "url": "https://ph.buzzing.cc/rss.xml",
         "name": "Buzzing ProductHunt",
+        "enabled": True,
+    },
+    "buzzing_reddit": {
+        "url": "https://reddit.buzzing.cc/feed.xml",
+        "name": "Reddit Buzzing",
         "enabled": True,
     },
 }

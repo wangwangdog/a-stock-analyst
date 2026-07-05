@@ -9,7 +9,7 @@ import pandas as pd
 from pathlib import Path
 
 HOME = str(Path.home())
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 SYM = "000001"
 
 def fetch_5m_klines():

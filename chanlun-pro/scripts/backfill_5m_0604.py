@@ -6,7 +6,7 @@ import os, sys, sqlite3, json, urllib.request, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 INS = "INSERT OR IGNORE INTO kline_cache (symbol,source,period,trade_date,open,close,high,low,volume,amount) VALUES (?,?,?,?,?,?,?,?,?,?)"
 N_WORKERS = 4
 TARGET_DAYS = ("2026-06-04", "2026-06-05")

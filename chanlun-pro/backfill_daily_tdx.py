@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path.home() / '.openclaw/workspace/a-stock-analyst/chanlun-pro/src'))
 from chanlun.exchange.exchange_tdx import ExchangeTDX
 
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 TARGET_DAYS = ('2026-05-29', '2026-06-01', '2026-06-02')
 
 ex = ExchangeTDX()

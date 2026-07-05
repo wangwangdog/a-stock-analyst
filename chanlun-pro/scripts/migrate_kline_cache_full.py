@@ -9,7 +9,7 @@ import sys, os, sqlite3, re, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(os.path.expanduser("~/.openclaw/workspace/a-stock-analyst/chanlun-pro/src"))))
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 
 def prefix_for(code):
     """根据代码前缀判断市场"""

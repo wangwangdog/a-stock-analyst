@@ -14,7 +14,7 @@ import os, sys, time, sqlite3, json, urllib.request
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 INS = "INSERT OR IGNORE INTO kline_cache (symbol,source,period,trade_date,open,close,high,low,volume,amount) VALUES (?,?,?,?,?,?,?,?,?,?)"
 DEL = "DELETE FROM kline_cache WHERE period='5m' AND trade_date < ? AND trade_date >= ?"
 N_WORKERS = 3

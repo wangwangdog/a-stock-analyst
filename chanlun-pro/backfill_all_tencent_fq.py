@@ -8,7 +8,7 @@ import sys, os, json, urllib.request, sqlite3, time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB_PATH = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 MAX_WORKERS = 8
 
 TENCENT_CACHE = {}

@@ -6,7 +6,7 @@
 import sys, os, json, urllib.request, sqlite3, time
 from datetime import datetime
 
-DB_PATH = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB_PATH = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 
 def tencent_code(symbol):
     """SH.000001 → sh000001, SZ.301563 → sz301563"""

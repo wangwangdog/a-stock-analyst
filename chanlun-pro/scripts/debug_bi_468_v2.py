@@ -15,7 +15,7 @@ freq = "day"
 
 # ── 1. 从chanlun_klines.sqlite获取数据（和真实后端一致） ──
 home = os.path.expanduser("~")
-db_path = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+db_path = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 print(f"数据库: {db_path}")
 
 _sym = symbol.split('.')[-1] if '.' in symbol else symbol

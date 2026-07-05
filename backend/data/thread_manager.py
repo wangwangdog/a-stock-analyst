@@ -20,7 +20,7 @@ from datetime import datetime, date
 from typing import Optional
 
 # ── 数据库路径 ──
-DB_PATH = Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
+DB_PATH = Path("/home/dogzi/sqlite-data/chanlun_klines.sqlite")
 
 # ── 表名 ──
 THREAD_TABLE = "agent_threads"

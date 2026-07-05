@@ -22,7 +22,7 @@ for p in [str(cl_site), str(cl_src)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-DB = str(Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"))
+DB = str(Path("/home/dogzi/sqlite-data/chanlun_klines.sqlite"))
 
 MARKET_SH = 1
 MARKET_SZ = 0

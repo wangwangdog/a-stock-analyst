@@ -11,7 +11,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 
 TARGET_PERIODS = {"15m": 3, "30m": 6, "60m": 12}  # period -> 5m candle count
 

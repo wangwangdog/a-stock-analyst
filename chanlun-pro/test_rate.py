@@ -1,5 +1,5 @@
 import os, time, sqlite3, json, urllib.request
-DB = "/mnt/disk990g/sqlite-data/chanlun_klines.sqlite"
+DB = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
 c = sqlite3.connect(DB, timeout=30)
 stale = [r[0] for r in c.execute(
     "SELECT symbol FROM kline_cache WHERE period='5m' "

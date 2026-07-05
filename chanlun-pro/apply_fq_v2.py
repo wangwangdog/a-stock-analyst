@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 HOME = Path.home()
-DB_PATH = Path("/mnt/disk990g/sqlite-data/chanlun_klines.sqlite")
+DB_PATH = Path("/home/dogzi/sqlite-data/chanlun_klines.sqlite")
 
 def fetch_tencent_fq(symbol: str, count: int = 300) -> tuple:
     """

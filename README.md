@@ -10,13 +10,15 @@ A 股数据分析 + 产业链知识图谱 Web 工具。胖磊 🦞 出品。
 
 ### 📰 新闻源扩展
 - **新增 Tavily 财经新闻源**：通过 Tavily API 搜索 A 股/行业/科技/板块热点，写入统一新闻表
-- **5 个新闻源，独立更新频率**：
+- **新增 Reddit Buzzing 源**：Reddit 中文热门内容，30 分钟间隔
+- **6 个新闻源，独立更新频率**：
 
 | 源 | 类型 | 更新间隔 |
 |------|------|---------|
 | TrendRadar 热点 | RSS | 15 分钟 |
 | Buzzing HN | RSS | 15 分钟 |
 | Buzzing ProductHunt | RSS | 15 分钟 |
+| **Reddit Buzzing** | RSS | 15 分钟 |
 | 36氪 科技财经 | RSS | 15 分钟 |
 | Tavily 财经 | API（Tavily Search） | **60 分钟** |
 
@@ -30,7 +32,7 @@ A 股数据分析 + 产业链知识图谱 Web 工具。胖磊 🦞 出品。
 - 双击公司节点 → 调 `/api/v1/chain/expand-smart` 展开产业链（纯 DB 查询）
 
 ### 🗄️ 数据库全量统一
-- 唯一 DB：`/mnt/disk990g/sqlite-data/chanlun_klines.sqlite`（~26GB）
+- 唯一 DB：`chanlun_klines.sqlite`（~26GB）
 - 产业链数据：11 张表（4586 公司 / 511 行业 / 17K 产品 / 110K 产品关系 / 62 万条物质流数据）
 - 删除 `backend/data/chain.db`，历史 `stock_cache.db` 已归档
 
@@ -130,7 +132,7 @@ bash start.sh
 
 ---
 
-## 数据库 (`/mnt/disk990g/sqlite-data/chanlun_klines.sqlite`)
+## 数据库 (`chanlun_klines.sqlite`)
 
 **唯一数据库**，约 26GB。包含 K 线数据、产业链数据、新闻数据。
 
