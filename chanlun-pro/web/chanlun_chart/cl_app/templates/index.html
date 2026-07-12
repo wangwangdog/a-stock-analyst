@@ -343,6 +343,62 @@
       currency_code: "{{ market_default_codes.currency }}",
       currency_spot_code: "{{ market_default_codes.currency_spot }}",
     };
+    // URL参数: 股票全码 ?symbol=SZ.000021 (主)
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var pSymbol = params.get('symbol');
+      if (pSymbol) {
+        window.__pendingSymbol = pSymbol;
+        // 同时写入 default_vals 和 localStorage（给 Utils.get_code 用）
+        var parts = pSymbol.split('.');
+        if (parts.length === 2) {
+          default_vals.market = 'a';
+          default_vals.a_code = parts[1];
+          try { localStorage.setItem('market', 'a'); } catch(e) {}
+          try { localStorage.setItem('a_code', parts[1]); } catch(e) {}
+        } else {
+          default_vals.market = 'a';
+          default_vals.a_code = pSymbol;
+        }
+        return;
+      }
+      var pMarket = params.get('market');
+      var pCode = params.get('code');
+      var pFull = params.get('full');
+      if (pFull) {
+        window.__pendingSymbol = pFull;
+        return;
+      }
+      if (pMarket && pCode) {
+        window.__pendingSymbol = pCode;
+      }
+    })();
+
+    // 接收 postMessage（从 QuantDinger 切换股票）
+    window.addEventListener('message', function(event) {
+      if (event.data && event.data.type === 'setSymbol') {
+        var m = event.data.market || 'a';
+        var c = event.data.code || '';
+        if (c) {
+          default_vals.market = m;
+          default_vals[m + '_code'] = c;
+          try { localStorage.setItem('market', m); } catch(e) {}
+          try { localStorage.setItem(m + '_code', c); } catch(e) {}
+          // 如果图表已加载，直接切换；否则重试几次
+          var retries = 0;
+          function trySwitch() {
+            if (typeof change_chart_ticker === 'function' && chart_widgets.length > 0) {
+              change_chart_ticker(m, c);
+            } else if (retries < 20) {
+              retries++;
+              setTimeout(trySwitch, 300);
+            }
+          }
+          trySwitch();
+        }
+      }
+    });
+
     var chart_widgets = [];
 
     // 变更图表展示的标的
@@ -982,6 +1038,31 @@
       }
 
       init_web();
+      // URL参数/PostMessage 传来的股票代码
+      if (window.__pendingSymbol) {
+        var _sym = window.__pendingSymbol;
+        var _parts = _sym.split('.');
+        var _market = 'a';
+        var _code = _sym;
+        if (_parts.length === 2) {
+          var _mMap = { SH: 'a', SZ: 'a', BJ: 'a' };
+          _market = _mMap[_parts[0]] || 'a';
+          _code = _parts[1];
+        }
+        (function(m, c) {
+          var _tryCount = 0;
+          function _apply() {
+            if (typeof change_chart_ticker === 'function' && chart_widgets.length > 0) {
+              change_chart_ticker(m, c);
+              window.__pendingSymbol = null;
+            } else if (_tryCount < 30) {
+              _tryCount++;
+              setTimeout(_apply, 500);
+            }
+          }
+          setTimeout(_apply, 1000);
+        })(_market, _code);
+      }
       interval_update_rates = setInterval(ZiXuan.stocks_update_rate(), 30000);
     });
   </script>

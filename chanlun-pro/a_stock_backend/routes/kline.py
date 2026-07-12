@@ -39,7 +39,7 @@ class HealthResponse(BaseModel):
 @router.get("/kline/{symbol}")
 async def get_kline(
     symbol: str,
-    period: str = Query("daily", pattern="^(daily|weekly|monthly|5min|15min|30min|60min)$"),
+    period: str = Query("daily", pattern="^(daily|weekly|monthly|5m|5min|15m|15min|30m|30min|60m|60min)$"),
     start_date: str = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end_date: str = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     indicators: bool = Query(True),
@@ -60,8 +60,9 @@ async def get_kline(
             start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
 
     # 分钟级K线：优先从 TDX 缓存读取，备用 AKShare
-    if period in ("5min", "15min", "30min", "60min"):
-        period_map = {"5min": "5m", "15min": "15m", "30min": "30m", "60min": "60m"}
+    if period in ("5m", "5min", "15m", "15min", "30m", "30min", "60m", "60min"):
+        period_map = {"5m": "5m", "5min": "5m", "15m": "15m", "15min": "15m",
+                      "30m": "30m", "30min": "30m", "60m": "60m", "60min": "60m"}
         tdx_period = period_map[period]
 
         # 尝试从 TDX 缓存读取
@@ -132,14 +133,19 @@ async def get_kline(
             from data.sequoia_engine import get_daily_kline
             sq_data = get_daily_kline(symbol, start_date, end_date)
             if sq_data:
-                # 检查 sequoia 数据是否缺少最新交易日
                 latest_sq = max(r["date"] for r in sq_data)
                 expected = datetime.now().date()
-                if expected.weekday() >= 5:  # 周六/日 → 回退到上周五
+                if expected.weekday() >= 5:
                     expected = expected - timedelta(days=expected.weekday() - 4)
                 if latest_sq < expected.strftime("%Y-%m-%d"):
                     logger.info(f"[Kline] {symbol}: sequoia 最新 {latest_sq}, 缺 {expected}，直接使用已有数据")
                 kline_data = sq_data
+            elif sq_data is None:
+                # 无数据直接返回，跳过慢速网络fallback
+                return KlineResponse(
+                    symbol=symbol, period=period, data=[], source="",
+                    status="ok", message=f"无可用日线数据"
+                )
         except Exception:
             pass
 
@@ -481,6 +487,8 @@ async def get_bigbuy_rank(
     """
     from data.cache import _get_conn
     conn = _get_conn()
+    # 用 hzeveryday 最新日期作为基准
+    _max_date = conn.execute("SELECT MAX(买入日期) FROM hzeveryday").fetchone()[0]
     if days:
         rows = conn.execute("""
             SELECT 股票代码, 股票名称, COUNT(DISTINCT 买入日期) as 天数, SUM(大笔买数) as 总笔数
@@ -488,11 +496,11 @@ async def get_bigbuy_rank(
             WHERE 股票代码 NOT LIKE '9%'
               AND 股票名称 NOT LIKE '%ST%'
               AND 股票名称 NOT LIKE '%退%'
-              AND 买入日期 >= date('now', ?)
+              AND 买入日期 >= date(?, ?)
             GROUP BY 股票代码
             HAVING 总笔数 >= 1
-            ORDER BY 天数 ASC, 总笔数 DESC
-        """, (f'-{days} days',)).fetchall()
+            ORDER BY 天数 DESC, 总笔数 DESC
+        """, (_max_date, f'-{days} days')).fetchall()
     else:
         rows = conn.execute("""
             SELECT 股票代码, 股票名称, COUNT(DISTINCT 买入日期) as 天数, SUM(大笔买数) as 总笔数

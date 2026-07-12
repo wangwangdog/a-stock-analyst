@@ -55,11 +55,11 @@ def get_conn():
 def get_missing_symbols():
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(DISTINCT symbol) FROM stock_daily')
+    cursor.execute("SELECT COUNT(DISTINCT symbol) FROM kline_cache WHERE period='daily'")
     total = cursor.fetchone()[0]
-    cursor.execute('SELECT DISTINCT symbol FROM stock_daily WHERE date = ?', (TODAY,))
+    cursor.execute("SELECT DISTINCT REPLACE(REPLACE(REPLACE(symbol, 'SH.', ''), 'SZ.', ''), 'BJ.', '') FROM kline_cache WHERE period='daily' AND trade_date = ?", (TODAY,))
     existing = {row[0] for row in cursor.fetchall()}
-    cursor.execute('SELECT DISTINCT symbol FROM stock_daily ORDER BY symbol')
+    cursor.execute("SELECT DISTINCT REPLACE(REPLACE(REPLACE(symbol, 'SH.', ''), 'SZ.', ''), 'BJ.', '') FROM kline_cache WHERE period='daily' ORDER BY symbol")
     all_symbols = [row[0] for row in cursor.fetchall()]
     conn.close()
     missing = [s for s in all_symbols if s not in existing]
@@ -117,7 +117,7 @@ def fetch_tencent_batch(symbols: list) -> list:
             if close <= 0:
                 continue
 
-            volume = volume_lots * 100
+            volume = int(volume_lots * 100)  # 手→股
             # 成交额解析：字段35含 "price/volume/amount"
             amount = 0
             if len(fields) > 35 and '/' in fields[35]:
@@ -176,9 +176,15 @@ def write_to_db(data):
         return
     conn = get_conn()
     cursor = conn.cursor()
+    # 写入 kline_cache（替代已废弃的 stock_daily）
+    kc_data = []
+    for row in data:
+        symbol, date, o, h, l, cl, vol, tover = row
+        prefix = "SH." if symbol.startswith("6") else ("SZ." if symbol[0] in "03" else "BJ.")
+        kc_data.append((prefix + symbol, 'tencent_daily', 'daily', date, o, cl, h, l, int(vol or 0), int(tover or 0), '', 'shares'))
     cursor.executemany(
-        'INSERT OR REPLACE INTO stock_daily (symbol, date, open, high, low, close, volume, turnover) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        data
+        'INSERT OR REPLACE INTO kline_cache (symbol, source, period, trade_date, open, close, high, low, volume, amount, name, volume_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        kc_data
     )
     conn.commit()
     conn.close()
@@ -277,7 +283,7 @@ def main():
 
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(DISTINCT symbol) FROM stock_daily WHERE date = ?', (TODAY,))
+    cursor.execute("SELECT COUNT(DISTINCT symbol) FROM kline_cache WHERE period='daily' AND trade_date = ?", (TODAY,))
     final_count = cursor.fetchone()[0]
     conn.close()
     print(f"\n📊 最终 {TODAY} 数据: {final_count:,} 只股票")

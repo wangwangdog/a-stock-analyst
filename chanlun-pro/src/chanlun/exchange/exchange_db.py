@@ -215,65 +215,41 @@ class ExchangeDB(Exchange):
             _db_path = "/home/dogzi/sqlite-data/chanlun_klines.sqlite"
             # 保留完整前缀代码（SH.000001 vs SZ.000001 不再冲突）
             _full_code = code
-            _pure_code = re.sub(r'^[A-Z]+\.', '', code)
             _period_map = {"d": "daily", "w": "weekly", "m": "monthly", "y": "yearly",
                            "5m": "5m", "15m": "15m", "30m": "30m", "60m": "60m"}
             _p = _period_map.get(frequency, frequency)
-            # 先用完整前缀代码查，若无数据则 fallback 到裸码（兼容旧数据）
-            # 但全码在其他周期有数据说明是已知品种，跳过 fallback 避免跨品种（如 SH.000001→000001平安银行）
-            _full_has_any = None  # 缓存检查结果
-            for _try_code in (_full_code, _pure_code):
-                # fallback 到裸码前，检查全码是否存在其他周期数据
-                if _try_code == _pure_code and _full_code != _pure_code:
-                    if _full_has_any is None:
-                        try:
-                            _ck_conn = sqlite3.connect(_db_path)
-                            _full_has_any = _ck_conn.execute(
-                                "SELECT 1 FROM kline_cache WHERE symbol=? LIMIT 1",
-                                (_full_code,)
-                            ).fetchone() is not None
-                            _ck_conn.close()
-                        except:
-                            _full_has_any = False
-                    if _full_has_any:
-                        break  # 全码已知但缺本次周期数据，跳过裸码 fallback
-                try:
-                    _conn = sqlite3.connect(_db_path)
-                    _sql = ("SELECT trade_date, open, high, low, close, volume "
-                            "FROM kline_cache WHERE symbol=? AND period=?")
-                    # 日线统一用 tencent_fq（volume 是手数，×100 转股数）
-                    if _p == 'daily':
-                        _sql += " AND source='tencent_fq'"
-                    _params = [_try_code, _p]
-                    if start_date:
-                        _sql += " AND DATE(trade_date)>=?"
-                        _params.append(start_date.strftime("%Y-%m-%d"))
-                    if end_date:
-                        _sql += " AND DATE(trade_date)<=?"
-                        _params.append(end_date.strftime("%Y-%m-%d"))
-                    _sql += " ORDER BY trade_date ASC"
-                    _df = pd.read_sql(_sql, _conn, params=_params)
-                    _conn.close()
-                    if not _df.empty:
-                        for _, _r in _df.iterrows():
-                            _vol = float(_r["volume"])
-                            # 日线 tencent_fq 的 volume 是手数，×100 转股
-                            if _p == 'daily':
-                                _vol *= 100
-                            kline_pd.append({
-                                "code": code,
-                                "date": _r["trade_date"],
-                                "open": float(_r["open"]),
-                                "high": float(_r["high"]),
-                                "low": float(_r["low"]),
-                                "close": float(_r["close"]),
-                                "volume": _vol,
-                            })
-                        if limit and len(kline_pd) > limit:
-                            kline_pd = kline_pd[-limit:]
-                        break  # 找到数据就不再 fallback
-                except Exception as _ex:
-                    pass
+            # 仅用全码查询（裸码已全删除），不对日线限定source
+            try:
+                _conn = sqlite3.connect(_db_path)
+                _sql = ("SELECT trade_date, open, high, low, close, volume, source "
+                        "FROM kline_cache WHERE symbol=? AND period=?")
+                _params = [_full_code, _p]
+                if start_date:
+                    _sql += " AND DATE(trade_date)>=?"
+                    _params.append(start_date.strftime("%Y-%m-%d"))
+                if end_date:
+                    _sql += " AND DATE(trade_date)<=?"
+                    _params.append(end_date.strftime("%Y-%m-%d"))
+                _sql += " ORDER BY trade_date ASC"
+                _df = pd.read_sql(_sql, _conn, params=_params)
+                _conn.close()
+                if not _df.empty:
+                    for _, _r in _df.iterrows():
+                        _vol = float(_r["volume"])
+                        # volume_unit 由入库时标记，此处不再做单位转换
+                        kline_pd.append({
+                            "code": code,
+                            "date": _r["trade_date"],
+                            "open": float(_r["open"]),
+                            "high": float(_r["high"]),
+                            "low": float(_r["low"]),
+                            "close": float(_r["close"]),
+                            "volume": _vol,
+                        })
+                    if limit and len(kline_pd) > limit:
+                        kline_pd = kline_pd[-limit:]
+            except Exception as _ex:
+                pass
 
         if len(kline_pd) == 0:
             kline_pd = pd.DataFrame(

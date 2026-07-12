@@ -135,31 +135,28 @@ def get_daily_kline(symbol: str, start: str = None, end: str = None) -> Optional
     if not Path(DB_PATH).exists():
         return None
 
-    # 尝试多种 symbol 格式
-    cands = [symbol]
-    if "." in symbol:
-        bare = symbol.split(".")[1]
-        cands.append(bare)
-    else:
-        for pref in ("SH", "SZ", "BJ"):
-            cands.append(f"{pref}.{symbol}")
+    # 尝试多种 symbol 格式，优先匹配正确的交易所前缀
+    # 裸码→全码转换（库内只有 SH./SZ./BJ. 前缀）
+    if "." not in symbol:
+        if symbol.startswith("6"):
+            symbol = f"SH.{symbol}"
+        elif symbol.startswith(("0", "3")):
+            symbol = f"SZ.{symbol}"
+        elif symbol.startswith(("4", "8")):
+            symbol = f"BJ.{symbol}"
 
     conn = sqlite3.connect(DB_PATH)
     try:
-        rows = None
-        for cand in cands:
-            sql = "SELECT trade_date, open, close, high, low, volume, amount FROM kline_cache WHERE symbol=? AND period='daily'"
-            params = [cand]
-            if start:
-                sql += " AND trade_date>=?"
-                params.append(start)
-            if end:
-                sql += " AND trade_date<=?"
-                params.append(end)
-            sql += " ORDER BY trade_date ASC"
-            rows = conn.execute(sql, params).fetchall()
-            if rows:
-                break
+        sql = "SELECT trade_date, open, close, high, low, volume, amount FROM kline_cache WHERE symbol=? AND period='daily'"
+        params = [symbol]
+        if start:
+            sql += " AND trade_date>=?"
+            params.append(start)
+        if end:
+            sql += " AND trade_date<=?"
+            params.append(end)
+        sql += " ORDER BY trade_date ASC"
+        rows = conn.execute(sql, params).fetchall()
 
         if not rows:
             return None

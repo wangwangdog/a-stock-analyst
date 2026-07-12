@@ -275,184 +275,89 @@ def _build_zss_from_bis(bis: List[BI], zs_type: str = "bi", config: dict = None)
             # ── 中间笔重叠区确定 ZG/ZD ──
             zs_direction = "up" if bis[i].type == "up" else "down"
 
-            # ── 步骤3：5笔模型高度检查 + 突破确认 ──
+            # ── 步骤3：5笔模型 —— 前5笔能否构成中枢 ──
             #   5笔模型: bis[i]=进入笔, bis[i+1~i+3]=中间笔, bis[i+4]=离开笔
-            #   用中间3笔的顶/底分型重算 ZG/ZD，检查重叠 + 出口突破
-            if SHOW_BIS_EXTEND_BREAK and i + 4 < len(bis):
-                zs_lines = [bis[i], bis[i+1], bis[i+2], bis[i+3], bis[i+4]]
-                j = i + 5
-                middle_pens = zs_lines[1:-1]          # 3笔中间笔
-                zg = min(_bi_top(b) for b in middle_pens)
-                zd = max(_bi_bottom(b) for b in middle_pens)
-                gg = max(b.end.val for b in middle_pens)
-                dd = min(b.end.val for b in middle_pens)
-                # 初始中间笔不重叠 → 跳过
-                if zd > zg:
-                    i += 1
-                    continue
-
-                entry_end = zs_lines[0].end.val       # 进入笔终点
-                exit_end = zs_lines[-1].end.val        # 离开笔终点
-
-                # ── 步骤4a：延伸扩展while循环 ──
-                # 延伸条件: 后续笔与中枢区间重叠(bh≥zd且bl≤zg)，则加入中枢线组
-                # 第5笔突破ZG/ZD后仍检查后续笔是否重叠——突破后下一笔若回到中枢则延伸（防假突破）
-                while SHOW_BIS_EXTEND and config.get('zs_extend', 1) and j < len(bis):
-                    bh, bl = _bi_top(bis[j]), _bi_bottom(bis[j])
-                    if bh >= zd and bl <= zg:
-                        zs_lines.append(bis[j])
-                        j += 1
-                        # 延伸后重算 ZG/ZD/GG/DD
-                        sub = zs_lines[1:-1]
-                        if sub:
-                            zg = min(_bi_top(b) for b in sub)
-                            zd = max(_bi_bottom(b) for b in sub)
-                            gg = max(b.end.val for b in sub)
-                            dd = min(b.end.val for b in sub)
-                    else:
-                        break
-                # 延伸后突破确认：离开笔必须突破中枢区间
-                # 如果第5笔没突破，不跳过，等后面统一处理第7/9笔
-                # ── 偶数笔修正：同向笔已突破 → 去掉末尾不同向笔 ──
-                if len(zs_lines) % 2 == 0 and len(zs_lines) >= 5:
-                    # 倒数第二笔（同向）已经突破了，去掉最后一笔
-                    zs_lines = zs_lines[:-1]
-                    j -= 1
-                    sub = zs_lines[1:-1]
-                    if sub:
-                        zg = min(_bi_top(b) for b in sub)
-                        zd = max(_bi_bottom(b) for b in sub)
-                        gg = max(b.end.val for b in sub)
-                        dd = min(b.end.val for b in sub)
-                # DEBUG: 当 zs 笔数最终超过5时打印
-                #_debug_zs_5pen = (i, j, len(zs_lines), f"5pen exit_end={exit_end:.4f} zg={zg:.4f} exit_high={zs_lines[-1].high:.4f}")
-            else:
-                # ── 旧3笔+延伸模式（不够5笔或开关关闭时兜底）──
-                middle_pens = [bis[i + 1]]
-                zg = _bi_top(bis[i + 1])
-                zd = _bi_bottom(bis[i + 1])
-                gg = zg
-                dd = zd
-                zs_lines = [bis[i], bis[i + 1], bis[i + 2]]
-                j = i + 3
-                zs_direction = "up" if zs_lines[0].type == "up" else "down"
-
-                extend_check = True
-                if SHOW_BIS_EXTEND_BREAK and j + 1 < len(bis):
-                    exit_end = zs_lines[-1].end.val
-                    if zs_direction == "up":
-                        if exit_end <= zg:
-                            i = j
-                            continue
-                        if bis[j].end.val > gg and bis[j + 1].end.val > gg:
-                            extend_check = False
-                    else:
-                        if exit_end >= zd:
-                            i = j
-                            continue
-                        if bis[j].end.val < dd and bis[j + 1].end.val < dd:
-                            extend_check = False
-
-                while extend_check and SHOW_BIS_EXTEND and config.get('zs_extend', 1) and j < len(bis):
-                    bh, bl = _bi_top(bis[j]), _bi_bottom(bis[j])
-                    if bh >= zd and bl <= zg:
-                        zs_lines.append(bis[j])
-                        j += 1
-                        sub = zs_lines[1:-1]
-                        if sub:
-                            zg = min(_bi_top(b) for b in sub)
-                            zd = max(_bi_bottom(b) for b in sub)
-                            gg = max(b.end.val for b in sub)
-                            dd = min(b.end.val for b in sub)
-                    else:
-                        break
-                # ── while偶数笔修正（3笔路径）──
-                if len(zs_lines) % 2 == 0 and len(zs_lines) >= 3:
-                    zs_lines = zs_lines[:-1]
-                    j -= 1
-
-            # ── 步骤4b：最终 ZG/ZD/GG/DD 重算 ──
-            # 用当前中枢线组所有中间笔重算，排除延伸对Z/S坐标的干扰
-            middle_pens = zs_lines[1:-1]
-            if middle_pens:
-                zg = min(_bi_top(b) for b in middle_pens)
-                zd = max(_bi_bottom(b) for b in middle_pens)
-                gg = max(b.end.val for b in middle_pens)
-                dd = min(b.end.val for b in middle_pens)
-            # 最终重算后校验中间笔重叠
-            # 失败时i+=1而非i=j，避免扩展过程消耗的中间笔被跳过
+            if i + 4 >= len(bis):
+                i += 1
+                continue
+            zs_lines = [bis[i], bis[i+1], bis[i+2], bis[i+3], bis[i+4]]
+            j = i + 5
+            middle_pens = zs_lines[1:-1]          # 3笔中间笔
+            zg = min(_bi_top(b) for b in middle_pens)
+            zd = max(_bi_bottom(b) for b in middle_pens)
+            gg = max(b.end.val for b in middle_pens)
+            dd = min(b.end.val for b in middle_pens)
+            # 初始中间笔不重叠 → 不成立
             if zd > zg:
                 i += 1
                 continue
-            # ── 步骤5：第5/7/9同向笔候选突破笔优选 ──
-            # 从5/7/9笔(相对进入笔偏移4/6/8)中找突破ZG/ZD的同向笔
-            # (0/1) 开关: SHOW_5_7_9_OPTIMIZE=1启用
-            # 优化规则（5/7/9都突破ZG/ZD时）：
-            #   7笔起点>ZG且末端>GG(up) / 起点<ZD且末端<DD(down) → 5笔完成
-            #   9笔起点>ZG且末端>GG(up) / 起点<ZD且末端<DD(down) → 7笔完成
-            #   否则 → 传统选最高/最低（没站稳不强行收）
-            extended = False
-            entry_end_val = zs_lines[0].end.val
-            candidates = []
-            max_offset = len(bis) - i - 1
-            for off in range(4, max_offset + 1, 2):  # 第5、7、9、11…笔相对i的偏移
-                idx = i + off
-                if idx < len(bis):
-                    bk = bis[idx]
-                    if bk.type == zs_direction:
-                        if (zs_direction == "up" and bk.high > zg and bk.end.val > entry_end_val) or \
-                           (zs_direction == "down" and bk.low < zd and bk.end.val < entry_end_val):
-                            candidates.append((off, bk, idx))
-            if candidates:
-                if SHOW_5_7_9_OPTIMIZE:
-                    # 通用优选：遍历相邻候选对，若后一笔站稳则选前一笔
-                    # 站稳条件: up方向 起点>ZG(不回头)且末端>GG(超越极值)
-                    #           down方向 起点<ZD且末端<DD
-                    best = candidates[0]  # 默认选最早
-                    for ci in range(1, len(candidates)):
-                        prev = candidates[ci - 1]
-                        cur = candidates[ci]
-                        if zs_direction == "up":
-                            cur_stable = cur[1].start.val > zg and cur[1].end.val > gg
-                        else:
-                            cur_stable = cur[1].start.val < zd and cur[1].end.val < dd
-                        if cur_stable:
-                            best = prev  # 后一笔站稳 → 选前一笔（笔数小的是离开笔）
-                            break
-                    else:
-                        # 都没站稳 → 传统选最高/最低
-                        if zs_direction == "up":
-                            best = max(candidates, key=lambda c: c[1].high)
-                        else:
-                            best = min(candidates, key=lambda c: c[1].low)
-                else:
-                    if zs_direction == "up":
-                        best = max(candidates, key=lambda c: c[1].high)
-                    else:
-                        best = min(candidates, key=lambda c: c[1].low)
-                off, bk, idx_best = best
-                zs_lines[-1] = bk
-                j = idx_best + 1
-                extended = True
-            if not extended:
-                # 第5/7/9笔都没突破，i+=1而非i=j，避免跳过中间可能成中枢的笔
+            # 进入笔起点不能在中枢内
+            if zd <= bis[i].start.val <= zg:
                 i += 1
                 continue
+
+            # ── 步骤4：第5笔必须突破中枢且与进入笔同向 ──
+            zs_direction = "up" if bis[i].type == "up" else "down"
+            exit_pen = zs_lines[-1]
+            # 进入笔和离开笔必须同向
+            if exit_pen.type != bis[i].type:
+                i += 1
+                continue
+            entry_end = zs_lines[0].end.val
+            if zs_direction == "up":
+                _broken = exit_pen.high > zg and exit_pen.end.val > entry_end
+            else:
+                _broken = exit_pen.low < zd and exit_pen.end.val < entry_end
+            if not _broken:
+                i += 1
+                continue  # 前5笔不能构成中枢
+
+            # ── 前5笔可构成中枢！保存初始 ZG/ZD ──
+            _init_zg, _init_zd = zg, zd
+
+            # ── 步骤5：中枢延伸（笔身与初始区间有重叠则加入）──
+            # 终止条件：笔两端完全在中枢同侧（完全在ZG上或完全在ZD下）
+            while j < len(bis):
+                _p = bis[j]
+                _p_both_above = _p.start.val > _init_zg and _p.end.val > _init_zg
+                _p_both_below = _p.start.val < _init_zd and _p.end.val < _init_zd
+                if _p_both_above or _p_both_below:
+                    break  # 独立一笔完全不在中枢区间 → 延伸结束
+                bh, bl = _bi_top(_p), _bi_bottom(_p)
+                if bh >= _init_zd and bl <= _init_zg:
+                    zs_lines.append(_p)
+                    j += 1
+                else:
+                    break
+
+            # ── 延伸后检查：最后笔必须与进入笔同向且终点超越进入笔终点 ──
+            entry_end_val = zs_lines[0].end.val
+            while len(zs_lines) > 5:
+                if zs_lines[-1].type != zs_lines[0].type:
+                    zs_lines = zs_lines[:-1]
+                    continue
+                if zs_direction == "up" and zs_lines[-1].end.val <= entry_end_val:
+                    zs_lines = zs_lines[:-1]
+                    continue
+                if zs_direction == "down" and zs_lines[-1].end.val >= entry_end_val:
+                    zs_lines = zs_lines[:-1]
+                    continue
+                break
 
             # ── 步骤6：创建中枢对象 ──
             zs = ZS(
                 zs_type=zs_type,
                 start=zs_lines[0].end,
                 end=zs_lines[-1].start,
-                zg=zg, zd=zd, gg=gg, dd=dd,
+                zg=_init_zg, zd=_init_zd, gg=gg, dd=dd,
                 _type=zs_direction,
                 index=zs_idx,
                 line_num=len(zs_lines),
             )
-            zs.lines = zs_lines  # 填充中枢组成线
+            zs.lines = zs_lines
             zss.append(zs)
             zs_idx += 1
-            i = j - 1  # 离开笔复用为下一个中枢的进入笔
+            i = j - 1
         else:
             i += 1
 

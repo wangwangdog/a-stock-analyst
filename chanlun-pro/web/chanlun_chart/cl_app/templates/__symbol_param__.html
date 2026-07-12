@@ -1,0 +1,24 @@
+    // URL参数: 股票全码 ?symbol=SZ.000021
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var sym = params.get('symbol');
+      if (!sym) sym = params.get('full');
+      if (!sym) {
+        // 兼容旧格式
+        var m = params.get('market');
+        var c = params.get('code');
+        if (m && c) sym = c;
+      }
+      if (sym) {
+        window.__pendingSymbol = sym;
+      }
+    })();
+
+    // postMessage 支持
+    window.addEventListener('message', function(event) {
+      if (event.data && event.data.type === 'setSymbol') {
+        window.__pendingSymbol = event.data.fullCode || event.data.code;
+      }
+    });
+
+    var chart_widgets = [];

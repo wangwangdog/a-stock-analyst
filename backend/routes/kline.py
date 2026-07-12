@@ -39,7 +39,7 @@ class HealthResponse(BaseModel):
 @router.get("/kline/{symbol}")
 async def get_kline(
     symbol: str,
-    period: str = Query("daily", pattern="^(daily|weekly|monthly|5min|15min|30min|60min)$"),
+    period: str = Query("daily", pattern="^(daily|weekly|monthly|5m|5min|15m|15min|30m|30min|60m|60min)$"),
     start_date: str = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end_date: str = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     indicators: bool = Query(True),
@@ -60,8 +60,9 @@ async def get_kline(
             start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
 
     # 分钟级K线：通过 DataProvider 自动兜底（Tencent → mootdx → AKShare）
-    if period in ("5min", "15min", "30min", "60min"):
-        period_map = {"5min": "5m", "15min": "15m", "30min": "30m", "60min": "60m"}
+    if period in ("5m", "5min", "15m", "15min", "30m", "30min", "60m", "60min"):
+        period_map = {"5m": "5m", "5min": "5m", "15m": "15m", "15min": "15m",
+                      "30m": "30m", "30min": "30m", "60m": "60m", "60min": "60m"}
         dl_period = period_map[period]
 
         # 使用 DataProvider 获取（自动缓存 + 多源兜底）

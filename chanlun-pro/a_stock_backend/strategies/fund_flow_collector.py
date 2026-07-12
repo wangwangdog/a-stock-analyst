@@ -19,6 +19,7 @@ import sqlite3
 import time
 import random
 import subprocess
+import requests
 import akshare as ak
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -122,7 +123,7 @@ def _rate_limit():
 
 
 def _fetch_eastmoney(symbol: str, limit: int = DAYS_BACK) -> list:
-    """调用东方财富资金流向API（带限流+重试）"""
+    """调用东方财富资金流向API（带限流+重试，使用 requests 替代 curl 避免被屏蔽）"""
     secid = _get_secid(symbol)
     url = (
         f"{BASE_URL}?secid={secid}"
@@ -132,30 +133,20 @@ def _fetch_eastmoney(symbol: str, limit: int = DAYS_BACK) -> list:
     )
 
     headers = [
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
-        "User-Agent: Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36",
+        {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "Referer": "https://data.eastmoney.com/"},
+        {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "Referer": "https://data.eastmoney.com/"},
+        {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1", "Referer": "https://data.eastmoney.com/"},
+        {"User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36", "Referer": "https://data.eastmoney.com/"},
     ]
 
     _rate_limit()
 
     for attempt in range(2):
-        ua = headers[attempt % len(headers)]
-        curl_cmd = [
-            "curl", "-s", "-4", "--tlsv1.2",
-            url,
-            "-H", ua,
-            "-H", "Referer: https://data.eastmoney.com/",
-            "--max-time", "10",
-        ]
+        h = headers[attempt % len(headers)]
         try:
-            result = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=15)
-            if result.returncode != 0 or not result.stdout.strip():
-                logger.debug(f"{symbol} 第{attempt+1}次空响应")
-                time.sleep(2)
-                continue
-            data = json.loads(result.stdout)
+            resp = requests.get(url, headers=h, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
         except Exception as e:
             logger.debug(f"{symbol} 第{attempt+1}次失败: {e}")
             time.sleep(2)
@@ -953,32 +944,157 @@ def collect_sector_fund_flow(indicator: str = "今日") -> str:
     return f"✅ 板块资金流采集完成: {total_ok} 条 ({indicator})"
 
 
-def collect_daily_incremental(batch: int = 200) -> str:
-    """每日增量采集：批量扫描 kline_cache 中有日线数据的股票，补当天资金流向
+def _parse_push2his_klines(data: dict) -> list:
+    """解析 push2his 资金流向 klines 数据"""
+    klines = data.get("data", {}).get("klines", [])
+    records = []
+    for line in klines:
+        parts = line.split(",")
+        if len(parts) < 11:
+            continue
+        try:
+            records.append({
+                "trade_date": parts[0].strip(),
+                "main_inflow": float(parts[1]),
+                "small_inflow": float(parts[2]),
+                "medium_inflow": float(parts[3]),
+                "large_inflow": float(parts[4]),
+                "big_inflow": float(parts[5]),
+                "main_pct": float(parts[6]),
+                "small_pct": float(parts[7]),
+                "medium_pct": float(parts[8]),
+                "large_pct": float(parts[9]),
+                "big_pct": float(parts[10]),
+            })
+        except (ValueError, IndexError):
+            continue
+    return records
 
-    用 lmt=3 (最近3天) 快速获取，避免全量历史。
+
+QUOTE_FUNDFLOW_URL = "https://push2.eastmoney.com/api/qt/stock/get"
+
+
+def _fetch_quote_today_fundflow(symbol: str) -> list:
+    """从 push2 行情 API 获取今日资金流向（降级方案）
+
+    字段映射:
+      f137 = main_inflow (主力净流入额)
+      f184 = main_pct (主力净流入占比)
+      f185 = small_pct (小单净流入占比)
+      f186 = large_pct (大单净流入占比)
+      f147 = big_inflow… (并非每只股都有完整细分)
+    """
+    secid = _get_secid(symbol)
+    url = (f"{QUOTE_FUNDFLOW_URL}?secid={secid}"
+           f"&fields=f57,f58,f137,f138,f139,f140,f141,f142,f143,f144,f145,"
+           f"f146,f147,f148,f149,f184,f185,f186,f187,f188,f189")
+    try:
+        resp = requests.get(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://quote.eastmoney.com/",
+        }, timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("data")
+        if not data:
+            return []
+        today = date.today().isoformat()
+        f137 = data.get("f137", 0) or 0
+        f184 = data.get("f184", 0) or 0
+        f185 = data.get("f185", 0) or 0
+        f186 = data.get("f186", 0) or 0
+        f187 = data.get("f187", 0) or 0
+        f188 = data.get("f188", 0) or 0
+
+        if f137 == 0 and abs(f184) < 0.01:
+            return []
+
+        # 从占比推导各细分流入
+        # main = big + large,   main_pct + medium_pct + small_pct = 0
+        big_pct = f184 - f186  # 超大单占比 = 主力占比 - 大单占比
+        medium_pct = -(f184 + f185)  # 中单占比 = -(主力占比 + 小单占比)
+        total_turnover = data.get("f189", 0) or 1  # 成交额基准
+
+        main_inflow = f137
+        # 根据占比计算各细分绝对额
+        big_inflow = main_inflow * (big_pct / f184) if f184 != 0 else 0
+        large_inflow = main_inflow * (f186 / f184) if f184 != 0 else 0
+        medium_inflow = -main_inflow * (medium_pct / f184) if f184 != 0 else 0
+        small_inflow = -main_inflow * (f185 / f184) if f184 != 0 else 0
+
+        return [{
+            "trade_date": today,
+            "main_inflow": round(main_inflow, 2),
+            "main_pct": round(f184, 2),
+            "big_inflow": round(big_inflow, 2),
+            "big_pct": round(big_pct, 2),
+            "large_inflow": round(large_inflow, 2),
+            "large_pct": round(f186, 2),
+            "medium_inflow": round(medium_inflow, 2),
+            "medium_pct": round(medium_pct, 2),
+            "small_inflow": round(small_inflow, 2),
+            "small_pct": round(f185, 2),
+        }]
+    except Exception:
+        return []
+
+
+def _save_today_records(sym: str, records: list) -> int:
+    """保存今日资金流向记录并清理本地推算"""
+    if not records:
+        return 0
+    saved = _save_records_api(sym, records)
+    if saved > 0:
+        c2 = _get_conn()
+        try:
+            c2.execute(f"DELETE FROM {TBL_LOCAL} WHERE symbol=?", (sym,))
+            c2.commit()
+        finally:
+            c2.close()
+    return saved
+
+
+def collect_daily_incremental(batch: int = 200) -> str:
+    """每日增量采集：批量扫描 stock_daily 中有日线数据的股票，补当天资金流向
+
+    数据源降级链:
+      1. push2his 东方财富资金流向API（含完整细分）
+      2. push2 行情API 资金流向字段（主力净流入 + 占比推算）
+      3. 本地推算（从 kline_cache + big_deal_summary 估算，写入 stock_fund_flow_local）
     """
     _ensure_table()
     today = date.today().isoformat()
     conn = _get_conn()
 
-    # 获取全市场有日线数据的股票（从 stock_daily 取，去重）
-    stocks = conn.execute(
-        "SELECT DISTINCT symbol FROM stock_daily "
-        "ORDER BY symbol"
-    ).fetchall()
+    # 获取全市场有日线数据的股票
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()]
+    if "stock_daily" in tables:
+        stocks = conn.execute(
+            "SELECT DISTINCT symbol FROM stock_daily ORDER BY symbol"
+        ).fetchall()
+    else:
+        stocks = conn.execute(
+            "SELECT DISTINCT symbol FROM kline_cache WHERE period='daily' AND source='stock_daily' "
+            "AND symbol NOT LIKE 'SH.0%' AND symbol NOT LIKE 'SZ.399%' AND symbol NOT LIKE 'SH.880%' "
+            "ORDER BY symbol"
+        ).fetchall()
     all_symbols = [r[0] for r in stocks]
     conn.close()
 
-    # 过滤已采集今天的
+    # 过滤已采集今天的（查API表 + 本地推算表）
     need = []
     conn = _get_conn()
     for sym in all_symbols:
-        has = conn.execute(
+        has_api = conn.execute(
             f"SELECT 1 FROM {TBL_API} WHERE symbol=? AND trade_date=? LIMIT 1",
             (sym, today)
         ).fetchone()
-        if not has:
+        has_local = conn.execute(
+            f"SELECT 1 FROM {TBL_LOCAL} WHERE symbol=? AND trade_date=? LIMIT 1",
+            (sym, today)
+        ).fetchone()
+        if not has_api and not has_local:
             need.append(sym)
             if len(need) >= batch:
                 break
@@ -995,62 +1111,48 @@ def collect_daily_incremental(batch: int = 200) -> str:
         time.sleep(random.uniform(1.5, 3.0))
 
         secid = _get_secid(sym)
-        url = f"{BASE_URL}?secid={secid}&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65&lmt=3"
-        curl_cmd = ["curl", "-s", "-4", "--tlsv1.2", url,
-                    "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "-H", "Referer: https://data.eastmoney.com/",
-                    "--max-time", "10"]
+        url = (f"{BASE_URL}?secid={secid}&fields1=f1,f2,f3,f7"
+               f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65"
+               f"&lmt=3")
+        records = []
+
+        # 方案1: push2his 资金流向API
         try:
-            result = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=15)
-            if result.returncode != 0 or not result.stdout.strip():
-                fail += 1
-                if (i + 1) % 20 == 0:
-                    logger.info(f"  ⏳ {i+1}/{len(need)} 完成{ok}失败{fail}")
-                continue
-            data = json.loads(result.stdout)
-            if not isinstance(data, dict) or not data.get("data") or not data["data"].get("klines"):
-                fail += 1
-                continue
+            resp = requests.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://data.eastmoney.com/",
+            }, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict) and data.get("data") and data["data"].get("klines"):
+                records = _parse_push2his_klines(data)
+        except Exception:
+            pass
 
-            records = []
-            for line in data["data"]["klines"]:
-                parts = line.split(",")
-                if len(parts) < 11:
-                    continue
-                try:
-                    records.append({
-                        "trade_date": parts[0].strip(),
-                        "main_inflow": float(parts[1]),
-                        "small_inflow": float(parts[2]),
-                        "medium_inflow": float(parts[3]),
-                        "large_inflow": float(parts[4]),
-                        "big_inflow": float(parts[5]),
-                        "main_pct": float(parts[6]),
-                        "small_pct": float(parts[7]),
-                        "medium_pct": float(parts[8]),
-                        "large_pct": float(parts[9]),
-                        "big_pct": float(parts[10]),
-                    })
-                except (ValueError, IndexError):
-                    continue
+        # 方案2: push2 行情API 降级
+        if not records:
+            records = _fetch_quote_today_fundflow(sym)
 
-            if records:
-                saved = _save_records_api(sym, records)
-                if saved > 0:
-                    # 清理本地推算数据
-                    c2 = _get_conn()
-                    c2.execute(f"DELETE FROM {TBL_LOCAL} WHERE symbol=?", (sym,))
-                    c2.commit()
-                    c2.close()
+        if records:
+            saved = _save_today_records(sym, records)
+            if saved > 0:
+                ok += 1
+            else:
+                fail += 1
+        else:
+            # 方案3: 本地推算降级（写入 stock_fund_flow_local）
+            local_records = _compute_from_local(sym, 3)
+            if local_records:
+                saved_local = _save_records_local(sym, local_records)
+                if saved_local > 0:
                     ok += 1
+                else:
+                    fail += 1
+            else:
+                fail += 1
 
-            if ok + fail > 0 and (i + 1) % 20 == 0:
-                logger.info(f"  ⏳ {i+1}/{len(need)} {ok}成功 {fail}失败")
-
-        except Exception as e:
-            fail += 1
-            if (i + 1) % 50 == 0:
-                logger.debug(f"  {sym}: {e}")
+        if (i + 1) % 20 == 0:
+            logger.info(f"  ⏳ {i+1}/{len(need)} {ok}成功 {fail}失败")
 
     msg = f"✅ [每日增量] {ok}成功 {fail}失败 (本批{len(need)}只, 全市场{len(all_symbols)}只)"
     return msg

@@ -346,3 +346,44 @@ a-stock-analyst/
 
 - `backend/tradingagents/` 目录代码来自 [TradingAgents-CN](https://github.com/hsliuping/TradingAgents-CN)，遵循 Apache 2.0 许可证
 - 其余代码为原创，保留所有权利
+
+---
+
+## 缠论中枢判定算法（2026-07-12 重构）
+
+### 改动文件
+- `src/chanlun/cl2.py` — 重写 `_build_zss_from_bis` 函数（中枢构建算法）
+- `web/chanlun_chart/cl_app/__init__.py` — `/tv/history` TV 数据接口调整
+- `a_stock_backend/routes/kline.py` — K线 API period 格式放宽（`5m`/`5min` 兼容）
+
+### 核心规则
+
+```
+步骤1: bis[i], bis[i+1], bis[i+2] 重叠检查（ZG = min(top), ZD = max(bottom)）
+步骤2: 进入笔起点不在 [ZD, ZG] 内
+步骤3: 5笔模型 bis[i]~bis[i+4]
+  - 中间3笔 [i+1~i+3] 重算 ZG/ZD
+  - 中间笔不重叠 → i++，不构成中枢
+步骤4: 第5笔必须突破且与进入笔同向
+  - UP:   high > ZG AND end > 进入笔 end
+  - DOWN: low  < ZD AND end < 进入笔 end
+  - 不满足 → i++，不构成中枢
+  锁定初始 _init_zg / _init_zd
+步骤5: 延伸（j = i + 5）
+  - 笔两端完全在 _init_zg 之上或 _init_zd 之下 → 终止
+  - 笔身与 _init 区间有重叠 → 加入，j++
+  - 不重叠 → 终止
+  延伸后检查（while 循环）:
+    - 最后笔与进入笔反向 → 去掉
+    - UP 且最后笔 end ≤ 进入笔 end → 去掉
+    - DOWN 且最后笔 end ≥ 进入笔 end → 去掉
+步骤6: 创建中枢对象（ZG/ZD = _init_zg/_init_zd）
+  i = j - 1（复用离开笔作为下一中枢进入笔）
+```
+
+### 关键设计说明
+- **无候选笔搜索**：第5笔即出口笔，不搜索第7/9/11笔
+- **无偶数修正**：不强制中枢线组为奇数
+- **无中枢合并**：相邻中枢不合并
+- **初始区间锁定**：延伸检查始终使用初始3中间笔的 ZG/ZD，延伸不改变中枢区间
+- **出口笔过滤**：延伸后循环检查，确保最后笔（出口笔）方向正确且终点超越进入笔终点

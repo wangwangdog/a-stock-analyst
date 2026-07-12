@@ -209,15 +209,20 @@
 
     <!-- 子图区域：买入额, 资金流入 -->
     <div class="sub-charts-area">
-      <!-- 买入额 子图（仅日线显示） -->
+      <!-- 大单买入数 子图（仅日线显示） -->
       <div class="sub-chart-item" v-show="showBigBuy">
-        <div class="sub-chart-label">买入额(万元)</div>
+        <div class="sub-chart-label">大单买入数</div>
         <div class="sub-chart-canvas" ref="bigbuyChartRef" id="bigbuy-chart"></div>
       </div>
-      <!-- 资金流入 子图（±柱状图，正=流入，负=流出） -->
+      <!-- 有大买单 子图 -->
+      <div class="sub-chart-item" v-show="showBigBuy">
+        <div class="sub-chart-label">有大买单</div>
+        <div class="sub-chart-canvas" ref="ratioChartRef" id="ratio-chart"></div>
+      </div>
+      <!-- 资金流入 子图 -->
       <div class="sub-chart-item" v-show="showBigBuy">
         <div class="sub-chart-label">资金流入</div>
-        <div class="sub-chart-canvas" ref="ratioChartRef" id="ratio-chart"></div>
+        <div class="sub-chart-canvas" ref="fundFlowChartRef" id="fundflow-chart"></div>
       </div>
       <!-- CR 指标 子图 -->
       <div class="sub-chart-item" v-show="crData.length">
@@ -270,7 +275,7 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showDialog, closeToast } from 'vant'
-import { getKline, getBigBuy, getBigBuyNet } from '../utils/api.js'
+import { getKline, getBigBuy, getBigBuySummary, getBigDealSummary } from '../utils/api.js'
 import Sidebar from '../components/Sidebar.vue'
 
 const props = defineProps({ symbol: { type: String, default: '000001' } })
@@ -282,6 +287,7 @@ const macdTooltipRef = ref(null)
 
 const bigbuyChartRef = ref(null)
 const ratioChartRef = ref(null)
+const fundFlowChartRef = ref(null)
 
 const period = ref('daily')
 
@@ -471,7 +477,8 @@ const stockName = ref('')
 const dataSource = ref('')
 const validationFailed = ref(0)
 const bigbuyData = ref([])
-const bigDealNetData = ref([])  // 大单净额数据
+const bigDealNetData = ref([])  // 有大买单数据（big_deal_summary）
+const fundFlowData = ref([])   // 资金流入数据（fund_flow）
 
 // AI 分析结果
 const aiResult = ref({ title: '', text: '', visible: false })
@@ -915,11 +922,23 @@ async function loadData() {
       }
     }
 
-    // 加载大单净额数据（仅日线）— subchart2 用
+    // 加载大单买入数（仅日线）— subchart: 大单买入数（hzeveryday）
     if (showBigBuy.value) {
       try {
-        const netRes = await getBigBuyNet(route.params.symbol || props.symbol, 60)
-        bigDealNetData.value = netRes.data.data || []
+        const bbRes = await getBigBuySummary(route.params.symbol || props.symbol, 60)
+        bigbuyData.value = bbRes.data.data || []
+      } catch (e) {
+        bigbuyData.value = []
+      }
+    } else {
+      bigbuyData.value = []
+    }
+
+    // 加载有大买单数据（仅日线）— subchart: 有大买单（big_deal_summary）
+    if (showBigBuy.value) {
+      try {
+        const ddRes = await getBigDealSummary(route.params.symbol || props.symbol, 60)
+        bigDealNetData.value = ddRes.data.data || []
       } catch (e) {
         bigDealNetData.value = []
       }
@@ -927,16 +946,16 @@ async function loadData() {
       bigDealNetData.value = []
     }
 
-    // 加载大单数据（仅日线）
+    // 加载资金流入数据（仅日线）— subchart: 资金流入（fund_flow）
     if (showBigBuy.value) {
       try {
-        const bbRes = await getBigBuy(route.params.symbol || props.symbol, 60)
-        bigbuyData.value = bbRes.data.data || []
+        const ffRes = await getBigBuy(route.params.symbol || props.symbol, 60)
+        fundFlowData.value = ffRes.data.data || []
       } catch (e) {
-        bigbuyData.value = []
+        fundFlowData.value = []
       }
     } else {
-      bigbuyData.value = []
+      fundFlowData.value = []
     }
 
     // 加载 CR 指标数据（仅日线）
@@ -1035,6 +1054,10 @@ function renderAllCharts() {
       // 有大买单子图
       if (showBigBuy.value) {
         renderRatioChart(lw, times)
+      }
+      // 资金流入子图
+      if (showBigBuy.value) {
+        renderFundFlowChart(lw, times)
       }
       // CR 子图
       if (crData.value.length) {
@@ -1413,7 +1436,7 @@ function renderRatioChart(lw, times) {
   }
 
   const ndMap = {}
-  bigDealNetData.value.forEach(d => { ndMap[d.date.slice(0, 10)] = d.net_amount })
+  bigDealNetData.value.forEach(d => { ndMap[d.date.slice(0, 10)] = d.amount })
 
   const chartData = klineData.value.map((d, i) => {
     const date = d.date.slice(0, 10)
@@ -1450,6 +1473,33 @@ function renderRatioChart(lw, times) {
 }
 
 // ====== CR 指标子图 ======
+
+// ====== 资金流入子图 ======
+function renderFundFlowChart(lw, times) {
+  if (!fundFlowChartRef.value || !fundFlowData.value.length) return
+  const { createChart, ColorType, HistogramSeries } = lw
+  const width = fundFlowChartRef.value.clientWidth || fundFlowChartRef.value.parentElement?.clientWidth || 400
+  let ffc = createChart(fundFlowChartRef.value, {
+    width, height: 120, layout: { background: { type: ColorType.Solid, color: '#FFFEF5' } },
+    grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+    timeScale: { visible: true, borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
+    rightPriceScale: { visible: true, borderVisible: false, scaleMargins: { top: 0.15, bottom: 0.15 } },
+    crosshair: { vertLine: { visible: false }, horzLine: { visible: false } },
+    handleScroll: false, handleScale: false,
+  })
+  const series = ffc.addSeries(HistogramSeries, {
+    color: '#1989fa', priceFormat: { type: 'volume', precision: 0 }, priceLineVisible: false,
+    lastValueVisible: false,
+  })
+  const ffMap = {}
+  fundFlowData.value.forEach(d => { ffMap[d.date.slice(0, 10)] = d.amount || d.qty || 0 })
+  const chartData = klineData.value.map((d, i) => {
+    const val = ffMap[d.date.slice(0, 10)] || 0
+    return { time: times[i], value: val, color: val >= 0 ? 'rgba(238,10,36,0.75)' : 'rgba(7,193,96,0.75)' }
+  })
+  series.setData(chartData)
+  ffc.timeScale().fitContent()
+}
 
 // ====== CR 指标子图（与MACD一样映射到K线times，支持setVisibleLogicalRange同步） ======
 function renderCrChart(lw, times) {

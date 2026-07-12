@@ -464,10 +464,14 @@ def create_app(test_config=None):
 
         infos = []
         for stock in res_stocks:
+            sym = stock["code"]
+            # 带前缀的代码（如 SH.000001）包装为 a:SH.000001 格式
+            if "." in sym and exchange == "a":
+                sym = f"a:{sym}"
             infos.append(
                 {
-                    "symbol": stock["code"],
-                    "name": stock["code"],
+                    "symbol": sym,
+                    "name": sym,
                     "full_name": f"{exchange}:{stock['code']}",
                     "description": stock["name"],
                     "exchange": exchange,

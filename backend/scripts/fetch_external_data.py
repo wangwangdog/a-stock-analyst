@@ -179,18 +179,25 @@ def _fetch_northbound(date):
     try:
         r = _em_get(url, params=params)
         data = r.json()
-        lines = (data.get("data") or {}).get("klines") or []
-        if lines:
-            last = lines[-1].split(",")
-            if len(last) >= 6:
+        d = data.get("data") or {}
+        # API 返回格式: {hk2sh: ["date,f1,f2,f3"], hk2sz: [...], sh2hk: [...], sz2hk: [...]}
+        # f52=当日净流入(万), f55=累计净流入(万), f56=当日余额(万)
+        hk2sh = d.get("hk2sh") or []
+        hk2sz = d.get("hk2sz") or []
+        if hk2sh and hk2sz:
+            sh_parts = hk2sh[-1].split(",")
+            sz_parts = hk2sz[-1].split(",")
+            if len(sh_parts) >= 2 and len(sz_parts) >= 2:
+                hgt_net = float(sh_parts[1])   # f52: 沪股通当日净流入(万)
+                sgt_net = float(sz_parts[1])   # f52: 深股通当日净流入(万)
                 row = {
                     "date": date,
-                    "hgt_net": float(last[1]),
-                    "sgt_net": float(last[2]),
-                    "total_net": float(last[5]),
+                    "hgt_net": hgt_net,
+                    "sgt_net": sgt_net,
+                    "total_net": hgt_net + sgt_net,
                 }
                 upsert_northbound_flow(row)
-                print(f"  北向: 沪{row['hgt_net']/1e8:.1f}亿 深{row['sgt_net']/1e8:.1f}亿 合计{row['total_net']/1e8:.1f}亿")
+                print(f"  北向: 沪{hgt_net/1e8:.1f}亿 深{sgt_net/1e8:.1f}亿 合计{row['total_net']/1e8:.1f}亿")
                 return row
     except Exception as e:
         print(f"  [WARN] northbound: {e}")

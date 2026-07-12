@@ -19,6 +19,26 @@ from data.cache import init_db, _migrate_v1_to_v2
 init_db()
 _migrate_v1_to_v2()
 
+# === 应用实例 ===
+app = FastAPI(
+    title="A-Stock Analyst API",
+    version="0.17",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# === 路由注册 ===
 from routes.kline import router as kline_router
 from routes.ai import router as ai_router
 from routes.favorites import router as favorites_router
@@ -34,29 +54,9 @@ from routes.rss import router as rss_router
 
 try:
     from routes.kronos import router as kronos_router
-except ImportError:
+except Exception:
     kronos_router = None
-    logger.warning("Kronos 模块不可用（缺少 torch），已跳过")
 
-app = FastAPI(
-    title="A-Stock Analyst",
-    description="A股数据分析工具 - 胖磊",
-    version="0.1.0",
-)
-
-# CORS - 允许前端跨域
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# GZip - 压缩静态资源（JS 438KB → ~154KB）
-app.add_middleware(GZipMiddleware, minimum_size=1000)
-
-# 注册路由
 app.include_router(kline_router)
 app.include_router(ai_router)
 app.include_router(favorites_router)
@@ -72,130 +72,13 @@ app.include_router(thread_router)  # 12-Factor Thread 状态管理
 app.include_router(chain_router)   # 产业链知识图谱查询
 app.include_router(rss_router)     # RSS 新闻聚合
 
-# === 启动时数据检查 ===
-_chanlun_proc = None
 
+# === 启动事件 ===
 @app.on_event("startup")
-async def startup_check():
-    """启动时检查数据新鲜度，并启动 chanlun-pro 子进程"""
-    # 启动 chanlun-pro (9903) 作为子进程
-    global _chanlun_proc
-    try:
-        _chanlun_dir = Path(__file__).resolve().parent.parent / "chanlun-pro"
-        _chanlun_python = _chanlun_dir / ".venv" / "bin" / "python"
-        _chanlun_script = _chanlun_dir / "web" / "chanlun_chart" / "app.py"
-        if _chanlun_python.exists() and _chanlun_script.exists():
-            _chanlun_proc = subprocess.Popen(
-                [str(_chanlun_python), str(_chanlun_script), "nobrowser"],
-                cwd=str(_chanlun_dir),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            logger.info(f"[启动] chanlun-pro 子进程已启动 (PID {_chanlun_proc.pid})")
-        else:
-            logger.warning("[启动] chanlun-pro 脚本未找到，跳过")
-    except Exception as e:
-        logger.warning(f"[启动] chanlun-pro 启动失败: {e}")
-
-    # 原有的数据检查逻辑
-    try:
-        from data.cache import _get_conn
-        conn = _get_conn()
-        cursor = conn.execute(
-            "SELECT MAX(trade_date) FROM kline_cache WHERE source='baostock' AND period='daily'"
-        )
-        row = cursor.fetchone()
-        conn.close()
-
-        if row and row[0]:
-            last_date = row[0]
-            days_ago = (datetime.now() - datetime.strptime(last_date, "%Y-%m-%d")).days
-            logger.info(f"[启动检查] 最新缓存日线数据: {last_date} ({days_ago}天前)")
-            if days_ago > 5:
-                logger.warning(f"[启动检查] 数据已 {days_ago} 天未更新，建议运行数据更新脚本")
-        else:
-            logger.info("[启动检查] 缓存中无历史数据，首次运行建议执行批量下载")
-    except Exception as e:
-        logger.debug(f"[启动检查] 数据检查跳过: {e}")
-
-
-@app.on_event("shutdown")
-async def shutdown_chanlun():
-    """关闭时清理 chanlun-pro 子进程"""
-    global _chanlun_proc
-    if _chanlun_proc and _chanlun_proc.poll() is None:
-        _chanlun_proc.terminate()
-        try:
-            _chanlun_proc.wait(timeout=5)
-            logger.info(f"[关闭] chanlun-pro 子进程已终止 (PID {_chanlun_proc.pid})")
-        except Exception:
-            _chanlun_proc.kill()
-            logger.warning(f"[关闭] chanlun-pro 子进程已强制杀死 (PID {_chanlun_proc.pid})")
-        _chanlun_proc = None
-
-
-@app.get("/api/root")
-async def root():
-    return {
-        "service": "A-Stock Analyst",
-        "version": "0.1.0",
-        "status": "running",
-        "api_docs": "/docs",
-    }
-
-
-@app.get("/api/ping")
-async def ping():
-    return {"pong": True, "time": __import__("datetime").datetime.now().isoformat()}
-
-
-@app.get("/api/data/status")
-async def data_status():
-    """数据状态查询"""
-    try:
-        from data.cache import _get_conn
-        conn = _get_conn()
-        cursor = conn.execute(
-            "SELECT symbol, source, period, COUNT(*) as count, MAX(trade_date) as latest "
-            "FROM kline_cache GROUP BY source, period ORDER BY source, period"
-        )
-        rows = cursor.fetchall()
-        conn.close()
-
-        sources = {}
-        for r in rows:
-            key = f"{r[1]}_{r[2]}"
-            sources[key] = {
-                "source": r[1],
-                "period": r[2],
-                "stocks": r[0],
-                "records": r[3],
-                "latest": r[4],
-            }
-        return {"status": "ok", "data": sources}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-@app.post("/api/data/update")
-async def trigger_update():
-    """手动触发增量更新（后台异步执行）"""
-    script = Path(__file__).resolve().parent / "scripts" / "data_update.py"
-    if not script.exists():
-        return {"status": "error", "message": "更新脚本不存在"}
-    try:
-        python = sys.executable
-        proc = subprocess.Popen(
-            [python, str(script)],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        return {
-            "status": "started",
-            "message": "数据更新已启动（后台进程）",
-            "pid": proc.pid,
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+async def startup_event():
+    from data.sequoia_engine import _init_picks_table
+    _init_picks_table()
+    logger.info("后端启动完成")
 
 
 # === 前端静态文件（必须在所有 API 路由之后注册） ===
@@ -216,19 +99,14 @@ if _frontend_dir.is_dir():
             return resp
 
     app.mount("/assets", _NoCacheStaticFiles(directory=str(_frontend_dir / "assets")), name="frontend_assets")
+    # Vite base=/a-stock/，HTML 里 JS/CSS 路径带 /a-stock/ 前缀，额外挂载一份
+    app.mount("/a-stock/assets", _NoCacheStaticFiles(directory=str(_frontend_dir / "assets")), name="frontend_assets_prefixed")
 
     _cache_hdrs_no = {
-        "Cache-Control": "no-cache",  # index.html 仅需要检查新版本
+        "Cache-Control": "no-cache",
     }
 
-    @app.api_route("/{path:path}", methods=["GET"])
-    async def serve_frontend(path: str):
-        if path.startswith("api/") or path == "api":
-            return HTMLResponse(status_code=404)
-        file_path = _frontend_dir / path
-        if file_path.is_file():
-            return FileResponse(str(file_path), headers=_cache_hdrs_no)
-        # index.html — 注入版本号到 JS 引用，强制回源
+    async def _serve_index():
         idx = (_frontend_dir / "index.html").read_text(encoding="utf-8")
         import re as _re
         idx = _re.sub(
@@ -241,6 +119,27 @@ if _frontend_dir.is_dir():
         _hdrs = dict(_cache_hdrs_no)
         _hdrs["Last-Modified"] = _last_mod
         return HTMLResponse(content=idx, headers=_hdrs)
+
+    @app.api_route("/{path:path}", methods=["GET"])
+    async def serve_frontend(path: str):
+        if path.startswith("api/") or path == "api":
+            return HTMLResponse(status_code=404)
+        # 兼容 /a-stock/ 前缀（Vite base=/a-stock/）
+        stripped = path
+        if stripped.startswith("a-stock/"):
+            stripped = stripped[len("a-stock/"):]
+        file_path = _frontend_dir / stripped
+        if file_path.is_file():
+            return FileResponse(str(file_path), headers=_cache_hdrs_no)
+        return await _serve_index()
+
+    @app.api_route("/a-stock", methods=["GET"])
+    async def serve_a_stock_root():
+        return await _serve_index()
+
+    @app.api_route("/a-stock/", methods=["GET"])
+    async def serve_a_stock_root_slash():
+        return await _serve_index()
 
     logger.info(f"前端静态文件已挂载: {_frontend_dir}")
 else:
